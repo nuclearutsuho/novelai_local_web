@@ -43,3 +43,16 @@ data/
 .vscode/
 .DS_Store
 Thumbs.db
+
+# 独立部署的私有证书、进程状态和本地备份不得提交。
+/deployment/pki/
+/deployment/certificates/
+/deployment/caddy/
+/deployment/caddy.zip
+/deployment/processes.json
+/deployment/studio.json
+/deployment/Caddyfile
+/deployment/production.env
+/backups/
+/work/
+/logs/
