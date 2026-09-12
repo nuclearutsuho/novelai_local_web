@@ -1,0 +1,25 @@
+[Unit]
+Description=Idlecloud Studio integration
+After=network.target
+
+[Service]
+Type=simple
+User=idlecloud
+Group=idlecloud
+WorkingDirectory=/opt/idlecloud/current
+EnvironmentFile=/etc/idlecloud/production.env
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/idlecloud/current/nai_flask/.venv/bin/python deployment/production_app.py
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/idlecloud
+
+[Install]
+WantedBy=multi-user.target

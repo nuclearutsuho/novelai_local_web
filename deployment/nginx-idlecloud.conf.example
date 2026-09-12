@@ -1,0 +1,23 @@
+# 放入已有 HTTPS server 块；证书和域名由现有生产反向代理管理。
+# Studio 使用自己的域名和 upstream，不把 /api 分流到 Studio。
+# 只直出 Next 带版本的构建资源；其余页面和公开素材沿用应用边界。
+# 不给用户目录、私有图片暂存或整个版本目录配置 alias。
+location ^~ /_next/static/ {
+    alias /opt/idlecloud/current/next_nai_web/out/_next/static/;
+    autoindex off;
+    add_header Cache-Control "public, max-age=31536000, immutable";
+    add_header X-Content-Type-Options nosniff always;
+}
+
+location / {
+    proxy_pass http://127.0.0.1:46011;
+    proxy_set_header Host 127.0.0.1:46011;
+    proxy_set_header Origin $http_origin;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    client_max_body_size 80m;
+    proxy_read_timeout 150s;
+    proxy_send_timeout 150s;
+    proxy_cache off;
+    # 不让大图代理响应落入共享临时缓存文件；仍保留默认响应缓冲。
+    proxy_max_temp_file_size 0;
+}
