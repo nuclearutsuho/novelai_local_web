@@ -122,7 +122,8 @@ export const downloadBlobToFile = async (blob, fileName) => {
   }
 };
 
-export const downloadUrlToFile = async (url, fileName) => {
+export const downloadUrlToFile = async (url, fileName, { isCurrent = () => true } = {}) => {
+  if (!isCurrent()) return false;
   if (!url) {
     throw createMediaAssetError(MEDIA_ASSET_ERROR_CODES.URL_REQUIRED);
   }
@@ -133,5 +134,6 @@ export const downloadUrlToFile = async (url, fileName) => {
   }
 
   const blob = await fetchUrlAsBlob(url);
+  if (!isCurrent()) return false;
   await downloadBlobToFile(blob, fileName);
 };

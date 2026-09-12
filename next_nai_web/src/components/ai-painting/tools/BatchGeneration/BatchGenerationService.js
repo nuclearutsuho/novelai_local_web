@@ -4,8 +4,9 @@ class BatchGenerationController {
   constructor(clock = {}) {
     this.clock = {
       now: typeof clock.now === 'function' ? clock.now : () => Date.now(),
-      setTimeout: typeof clock.setTimeout === 'function' ? clock.setTimeout : setTimeout,
-      clearTimeout: typeof clock.clearTimeout === 'function' ? clock.clearTimeout : clearTimeout,
+      // 浏览器原生计时器不能以 clock 对象作为接收者，包装调用保留原生调用上下文。
+      setTimeout: typeof clock.setTimeout === 'function' ? clock.setTimeout : (callback, delay) => setTimeout(callback, delay),
+      clearTimeout: typeof clock.clearTimeout === 'function' ? clock.clearTimeout : (timer) => clearTimeout(timer),
     };
     // 批量生成状态
     this.status = {
@@ -28,7 +29,7 @@ class BatchGenerationController {
     
     // 批量生成配置
     this.config = {
-      bufferTime: 15,     // 每次生成间的缓冲时间（秒）
+      bufferTime: 0,      // 部署版不添加人为生成间隔
     };
     
   }

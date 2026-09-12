@@ -1,3 +1,4 @@
+import { userStorage } from '@/utils/userStorage.mjs';
 export const MODEL_PROMPT_CACHE_KEY = 'aiImagePromptsByModel_v1';
 
 const LEGACY_POSITIVE_PROMPT_KEY = 'positivePrompt';
@@ -25,7 +26,7 @@ const resolveStorage = (storage) => {
 
   try {
     // 某些隐私模式或沙箱策略会在读取 localStorage getter 时直接抛出异常。
-    return window.localStorage;
+    return userStorage;
   } catch (error) {
     console.error('浏览器本地存储不可用，将使用当前会话内存缓存:', error);
     return null;

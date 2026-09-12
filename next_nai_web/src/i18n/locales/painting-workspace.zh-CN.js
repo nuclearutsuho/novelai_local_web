@@ -1,6 +1,28 @@
 const paintingWorkspacezhCN = {
   "painting": {
     "workspace": {
+      "toolRecovery": {
+        "unavailable": "原任务已成功，但临时结果已过期或损坏。清除后重新使用工具会创建新任务，并可能再次产生费用。",
+        "title": "{tool}任务 #{id} 已结束",
+        "vibe-encode": "Vibe 编码",
+        "upscale": "图片放大",
+        "director": "Director 编辑",
+        "unknown": "官方执行结果未知，可能已经扣费。清除本地记录不会重新执行；再次使用工具会创建新任务。",
+        "ended": "清除本地记录后可以手动重新使用工具，新任务可能产生新的费用。服务器原记录仍会保留。",
+        "clear": "清除已结束记录",
+        "cleared": "本地阻塞已解除，未发起新任务。需要重试时请再次使用原工具。",
+        "checkFailed": "未能确认任务终态，记录已保留。请检查连接后重试。"
+      },
+      "studioLibrary": {
+        "save": "保存到 Studio 图库",
+        "uploading": "正在上传当前图片…",
+        "processing": "图片已接收，正在处理入库…",
+        "ready": "已保存到你的 Studio 私人图库。",
+        "quota": "Studio 存储空间不足，请清理图库后重试。",
+        "failed": "图片处理失败，请前往 Studio 图库重试处理。",
+        "pending": "仍在处理中，可稍后再次点击保存查询结果。",
+        "error": "保存未确认，请检查连接后重试；相同图片不会重复入库。"
+      },
       "errors": {
         "pollingFailed": "获取生成结果失败。",
         "inpaintSourceRequired": "请先选择局部重绘源图。",
@@ -213,7 +235,7 @@ const paintingWorkspacezhCN = {
         "promptGuidanceRescaleHelp": "降低高 CFG 下的过曝和色彩偏移。",
         "noiseSchedule": "噪声计划",
         "batchSize": "连续生成数量",
-        "batchSizeHelp": "按顺序发起的单图请求数量；每次请求仅生成一张图像。",
+        "batchSizeHelp": "本批生成的图片数量，最多 16 张。",
         "extraConfiguration": "额外配置",
         "extraConfigurationWarning": "仅在了解这些参数的作用时修改。",
         "experimentalWarning": "实验功能可能影响生成稳定性。",
@@ -301,6 +323,12 @@ const paintingWorkspacezhCN = {
         "vibeConverted": "已转换",
         "vibePendingConversion": "待转换",
         "vibeConverting": "转换中…",
+        "vibeInterrupted": "上次转换已中断",
+        "vibeInterruptedStudio": "页面已中断。恢复只领取 Studio 原请求的结果，不会重新编码。",
+        "vibeInterruptedDirect": "上次编码结果未知，可能已计费。重新编码可能再次计费。",
+        "recoverVibe": "恢复原编码",
+        "retryInterruptedVibe": "重新编码（可能再次计费）",
+        "vibeRecoveryMissing": "原编码记录已不存在，本次未创建请求。如需重新编码，请再次点击转换。",
         "vibeConversionFailed": "转换失败",
         "referenceImageAlt": "参考图像",
         "downloadVibeFile": "下载 Vibe 文件",

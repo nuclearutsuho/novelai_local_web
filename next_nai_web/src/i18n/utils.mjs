@@ -1,5 +1,5 @@
 export const SUPPORTED_LOCALES = Object.freeze(['en-US', 'zh-CN']);
-export const DEFAULT_LOCALE = 'en-US';
+export const DEFAULT_LOCALE = 'zh-CN';
 export const LOCALE_STORAGE_KEY = 'novelai-local.locale';
 
 /**
@@ -25,7 +25,7 @@ export function normalizeLocale(value, fallback = DEFAULT_LOCALE) {
 }
 
 /**
- * 按“合法存储值优先、英文兜底”的规则解析语言。
+ * 按“已保存语言优先、简体中文兜底”的规则解析语言。
  *
  * Args:
  *   storedLocale: 从本地存储读取的语言值。

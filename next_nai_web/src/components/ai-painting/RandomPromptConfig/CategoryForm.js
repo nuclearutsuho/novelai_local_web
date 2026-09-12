@@ -1,3 +1,4 @@
+import { userStorage } from '@/utils/userStorage.mjs';
 // CategoryForm.js
 import React, { useState, useEffect } from 'react';
 import {
@@ -100,7 +101,7 @@ const CategoryForm = ({ categories = [], onChange, onInsert, generateExample }) 
       let initialStartPosition = category.startPosition || 0;
       if (category.extractMode === 'sequential') {
         const storageKey = `category_item_position_${category.id || category.name}`; // 最好使用ID
-        const storedPosition = localStorage.getItem(storageKey);
+        const storedPosition = userStorage.getItem(storageKey);
         if (storedPosition !== null) {
           const parsedStoredPosition = parseInt(storedPosition, 10);
           // 只有当 localStorage 的值有效时才使用它作为 UI 的初始值
@@ -206,7 +207,7 @@ const CategoryForm = ({ categories = [], onChange, onInsert, generateExample }) 
     //   const catId = editingCategory ? editingCategory.id : categories.find(c => c.name === categoryName.trim())?.id;
     //   if (catId) {
     //      const storageKey = `category_item_position_${catId}`;
-           // localStorage.setItem(storageKey, categoryData.startPosition.toString()); // 保存配置的起始点
+           // userStorage.setItem(storageKey, categoryData.startPosition.toString()); // 保存配置的起始点
     //   }
     // }
     

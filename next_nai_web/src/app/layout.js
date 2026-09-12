@@ -27,18 +27,25 @@ export const viewport = {
 const bootstrapAppearance = `
   (function () {
     try {
-      var storedLocale = window.localStorage.getItem('novelai-local.locale');
+      // 在首屏绘制前固定中转页底色，避免主题和翻译初始化时露出白底。
+      if (['/studio/start', '/studio/callback'].includes(window.location.pathname)) {
+        document.documentElement.dataset.studioTransition = 'true';
+      }
+      var userId = window.sessionStorage.getItem('idlecloud.studio-user') || '';
+      var scope = window.sessionStorage.getItem('idlecloud.connection') === 'studio'
+        ? 'studio:' + (/^[1-9][0-9]*$/.test(userId) ? userId : 'pending') + ':' : '';
+      var storedLocale = window.localStorage.getItem(scope + 'novelai-local.locale');
       var locale = storedLocale === 'zh-CN' || storedLocale === 'en-US'
         ? storedLocale
-        : 'en-US';
-      var theme = window.localStorage.getItem('themeMode') === 'light' ? 'light' : 'dark';
+        : 'zh-CN';
+      var theme = window.localStorage.getItem(scope + 'themeMode') === 'light' ? 'light' : 'dark';
       document.documentElement.lang = locale;
       document.documentElement.dataset.locale = locale;
       document.documentElement.dataset.theme = theme;
       window.__NOVELAI_LOCAL_LOCALE__ = locale;
     } catch (error) {
-      document.documentElement.lang = 'en-US';
-      document.documentElement.dataset.locale = 'en-US';
+      document.documentElement.lang = 'zh-CN';
+      document.documentElement.dataset.locale = 'zh-CN';
       document.documentElement.dataset.theme = 'dark';
     }
   })();
@@ -46,9 +53,13 @@ const bootstrapAppearance = `
 
 export default function RootLayout({ children }) {
   return (
-    <html lang="en-US" data-i18n-ready="false" suppressHydrationWarning>
+    <html lang="zh-CN" data-i18n-ready="false" suppressHydrationWarning>
       <head>
-        <style>{`html[data-i18n-ready="false"] body { visibility: hidden; }`}</style>
+        <style>{`html { background: #0d1117; }
+          html[data-theme="light"] { background: #f0f4f8; }
+          html[data-i18n-ready="false"] body { visibility: hidden; }
+          html[data-studio-transition="true"], html[data-studio-transition="true"] body { background: #0d1117 !important; }
+          html[data-studio-transition="true"] body { visibility: visible !important; }`}</style>
         <script dangerouslySetInnerHTML={{ __html: bootstrapAppearance }} />
       </head>
       <body

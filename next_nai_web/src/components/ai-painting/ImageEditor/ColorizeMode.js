@@ -38,11 +38,12 @@ const colorPresets = [
   { id: 'winter', labelKey: 'painting.tools.imageEditor.colorize.presets.winter' }
 ];
 
-const ColorizeMode = ({ isMobile, theme, inSidePanel = false, onSaveParams }) => {
+const ColorizeMode = ({ isMobile, theme, inSidePanel = false, onSaveParams, initialParams = null }) => {
   const { t } = useI18n();
-  const [prompt, setPrompt] = useState('');
-  const [intensity, setIntensity] = useState(0);
-  const [presetSelected, setPresetSelected] = useState('');
+  // 重新打开编辑器时沿用已保存的提示词、强度和预设。
+  const [prompt, setPrompt] = useState(() => initialParams?.prompt ?? '');
+  const [intensity, setIntensity] = useState(() => initialParams?.intensity ?? 0);
+  const [presetSelected, setPresetSelected] = useState(() => initialParams?.preset?.id ?? '');
 
   // 使用 useMemo 记忆参数对象，避免不必要的重新渲染
   const params = useMemo(() => ({

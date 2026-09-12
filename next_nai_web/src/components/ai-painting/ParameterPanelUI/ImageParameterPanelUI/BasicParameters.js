@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import LockableSlider from '@/components/muiWrappers/LockableSlider';
+import apiClient from '@/utils/ApiClient';
 import {
   Box,
   Typography,
@@ -404,10 +405,10 @@ const BasicParameters = ({
           label={t('painting.workspace.parameters.batchSize')}
           value={params.batchSize}
           min={1}
-          max={8}
+          max={apiClient.isStudio() ? 64 : 16}
           step={1}
           onChange={(newValue) => handleParamChange('batchSize', newValue)}
-          tooltip={t('painting.workspace.parameters.batchSizeHelp')}
+          tooltip={apiClient.isStudio() ? '最多 64 张，由 Studio 分批完成' : t('painting.workspace.parameters.batchSizeHelp')}
           marks={[
             { value: 1, label: '1' },
             { value: 4, label: '4' },

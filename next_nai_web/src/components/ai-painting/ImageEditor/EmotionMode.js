@@ -40,11 +40,12 @@ const emotionOptions = [
   'nervous', 'laughing', 'irritated', 'aroused', 'worried', 'love', 'hurt', 'playful'
 ].map((value) => ({ value, labelKey: `painting.tools.imageEditor.emotion.options.${value}` }));
 
-const EmotionMode = ({ isMobile, theme, inSidePanel = false, onSaveParams }) => {
+const EmotionMode = ({ isMobile, theme, inSidePanel = false, onSaveParams, initialParams = null }) => {
   const { t } = useI18n();
-  const [selectedEmotion, setSelectedEmotion] = useState('neutral');
-  const [prompt, setPrompt] = useState('');
-  const [defry, setDefry] = useState(0);
+  // 恢复父组件保存的编辑参数，不能在重新打开时把默认值写回覆盖。
+  const [selectedEmotion, setSelectedEmotion] = useState(() => initialParams?.emotion ?? 'neutral');
+  const [prompt, setPrompt] = useState(() => initialParams?.prompt ?? '');
+  const [defry, setDefry] = useState(() => initialParams?.defry ?? 0);
 
   // 使用 useMemo 记忆参数对象，避免不必要的重新渲染
   const params = useMemo(() => ({

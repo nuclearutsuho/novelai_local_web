@@ -16,6 +16,7 @@ import {
   DialogContent,
   DialogActions,
   Slide,
+  Alert,
   useMediaQuery,
 } from '@mui/material';
 import {
@@ -25,6 +26,7 @@ import {
   Collections as CollectionsIcon,
   Delete as DeleteIcon,
   Download as DownloadIcon,
+  CloudUpload as CloudUploadIcon,
   DeleteSweep as DeleteSweepIcon,
   Close as CloseIcon,
   Archive as ArchiveIcon,
@@ -42,6 +44,9 @@ import {
 } from '@/utils/mediaAssets';
 import { generateFileName, getImageSettings } from './tools/ImageTools/ImageSaveUtils';
 import { useI18n } from '@/i18n/I18nProvider';
+import apiClient from '@/utils/ApiClient';
+import { saveStudioImage } from '@/utils/StudioLibrary.mjs';
+import { currentStorageScope, userStorage } from '@/utils/userStorage.mjs';
 
 const SlideUp = React.forwardRef(function SlideUp(props, ref) {
   return <Slide direction="up" ref={ref} {...props} />;
@@ -90,6 +95,9 @@ const ItemPreview = ({
   const selectedItemRef = useRef(null);
   const [galleryOpen, setGalleryOpen] = useState(false);
   const [copyingId, setCopyingId] = useState(null);
+  const [savingId, setSavingId] = useState(null);
+  const savingRef = useRef(false);
+  const [saveNotice, setSaveNotice] = useState(null);
   const currentItem = items.find((item) => item.id === currentItemId) || null;
   const currentItemMetadata = currentItem?.metadataStatus === 'ready' && currentItem?.metadataSource === currentItem?.src
     ? currentItem.metadata
@@ -235,6 +243,30 @@ const ItemPreview = ({
     void downloadItem(item);
   }, [downloadItem]);
 
+  const saveToStudio = async (item) => {
+    if (!item || savingRef.current) return;
+    savingRef.current = true;
+    setSavingId(item.id);
+    const owner = currentStorageScope();
+    const show = (key, severity = 'info') => {
+      if (currentStorageScope() === owner) setSaveNotice({ key, severity });
+    };
+    try {
+      // 与下载共用最终图片来源，保留用户已应用的重绘合成结果。
+      const blob = await getItemBlob(item);
+      if (owner !== currentStorageScope()) throw new Error('STUDIO_IDENTITY_CHANGED');
+      await saveStudioImage({ blob, request: (...args) => apiClient.request(...args), scope: currentStorageScope, storage: userStorage,
+        onStatus: (status) => show(status, status === 'ready' ? 'success' : 'info') });
+    } catch (error) {
+      const code = error.code || error.message;
+      show(code === 'storage_limit_exceeded' ? 'quota' : code === 'STUDIO_MEDIA_FAILED' ? 'failed'
+        : code === 'STUDIO_MEDIA_PENDING' ? 'pending' : 'error', 'warning');
+    } finally {
+      savingRef.current = false;
+      setSavingId(null);
+    }
+  };
+
   const handleDownloadAll = useCallback(async () => {
     const zip = new JSZip();
     const folder = zip.folder('generated_items');
@@ -310,6 +342,9 @@ const ItemPreview = ({
 
   return (
     <Box sx={{ height: '100%', position: 'relative', display: 'flex', flexDirection: 'column' }}>
+      {saveNotice && apiClient.isStudio() && <Alert severity={saveNotice.severity} onClose={() => setSaveNotice(null)}>
+        {t(`painting.workspace.studioLibrary.${saveNotice.key}`)}
+      </Alert>}
       {items.length > 0 ? (
         <Box
           ref={scrollContainerRef}
@@ -438,6 +473,13 @@ const ItemPreview = ({
               label: t('painting.workspace.gallery.downloadImage'),
               icon: <DownloadIcon sx={{ fontSize: 18 }} />,
               onClick: () => { void downloadItem(currentItem); },
+            })}
+            {apiClient.isStudio() && currentItem.type !== 'video' && renderActionControl({
+              key: 'studio-save',
+              label: t('painting.workspace.studioLibrary.save'),
+              icon: <CloudUploadIcon sx={{ fontSize: 18 }} />,
+              onClick: () => { void saveToStudio(currentItem); },
+              disabled: savingId !== null,
             })}
             {renderActionControl({
               key: 'delete-item',

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   Alert, Box, Button, Container, Divider, Fade, Paper, TextField, Typography,
@@ -29,6 +29,31 @@ export default function LoginPage() {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [studioEnabled, setStudioEnabled] = useState(false);
+  const [showOfficialLogin, setShowOfficialLogin] = useState(false);
+  const autoStarted = useRef(false);
+  useEffect(() => {
+    apiClient.request('/studio/config').then((config) => setStudioEnabled(config.enabled === true)).catch(() => {});
+  }, []);
+
+  const connectStudio = async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const result = await apiClient.request('/studio/start', { method: 'POST', body: {} });
+      window.location.assign(result.authorize_url);
+    } catch {
+      setError('Studio 连接不可用，请稍后重试。');
+      setLoading(false);
+    }
+  };
+  useEffect(() => {
+    if (!studioEnabled || autoStarted.current || new URLSearchParams(window.location.search).get('studio') !== '1') return;
+    // 仅 Studio 启动链接自动发起；先清除标记，失败或返回时不会重复跳转。
+    autoStarted.current = true;
+    window.history.replaceState(null, '', '/login');
+    void connectStudio();
+  }, [studioEnabled]);
   const [recovery, setRecovery] = useState(null);
   const [recoveryForm, setRecoveryForm] = useState({
     source_email: '', source_password: '', target_email: '', target_password: '',
@@ -98,7 +123,7 @@ export default function LoginPage() {
       const result = loginMode === 'token'
         ? await apiClient.loginWithPersistentToken(token)
         : await apiClient.loginWithPassword(email, password);
-      if (result.authenticated) router.replace('/main');
+      if (result.authenticated) window.location.replace('/main');
     } catch (requestError) {
       setError(requestError?.data?.message || requestError?.code || t('login.invalidCredentials'));
     } finally {
@@ -255,6 +280,21 @@ export default function LoginPage() {
                       </Button>
                     </Box>
                   </Fade>
+                ) : studioEnabled && !showOfficialLogin ? (
+                  <Box>
+                    <Typography variant="body1" sx={{ mb: 1, color: '#fff' }}>使用 Studio 账号登录</Typography>
+                    <Typography variant="body2" sx={{ mb: 3, color: alpha('#fff', 0.65) }}>
+                      使用你的 Studio 用户名和密码，按账号权限及额度进行创作。
+                    </Typography>
+                    {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+                    <Button fullWidth variant="contained" size="large" disabled={loading} onClick={connectStudio} sx={primaryButtonStyle}>
+                      {loading ? '正在连接 Studio…' : '使用 Studio 登录'}
+                    </Button>
+                    <Button fullWidth size="small" disabled={loading} sx={{ ...accountSwitchButtonStyle, mt: 2 }}
+                      onClick={() => { setShowOfficialLogin(true); setError(''); }}>
+                      自带 NovelAI 官方账号或 Token
+                    </Button>
+                  </Box>
                 ) : (
                   <Fade in key={loginMode} timeout={250}>
                     <Box>
@@ -282,6 +322,7 @@ export default function LoginPage() {
                         </>
                       )}
                       {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+                      {studioEnabled && <Button fullWidth onClick={() => { setShowOfficialLogin(false); setError(''); }} sx={{ mb: 2 }}>返回 Studio 登录</Button>}
                       <Button fullWidth variant="contained" size="large"
                         disabled={loading || (loginMode === 'token' ? !token.trim() : !email.trim() || !password)}
                         onClick={handleSubmit} sx={primaryButtonStyle}>

@@ -1,0 +1,7 @@
+.page { position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; padding: 24px; background: #0d1117; color: #b8bbc6; font: 14px/1.6 Arial, sans-serif; }
+.loading { margin: 0; font: inherit; }
+.panel { max-width: 440px; text-align: center; }
+.error { color: #e99a9a; }
+.back, .secondary { display: inline-block; margin: 12px; color: inherit; font: inherit; }
+.secondary { background: transparent; border: 1px solid #3a3c45; border-radius: 6px; padding: 6px 16px; cursor: pointer; }
+.back:focus-visible, .secondary:focus-visible { outline: 2px solid #b8bbc6; outline-offset: 4px; }

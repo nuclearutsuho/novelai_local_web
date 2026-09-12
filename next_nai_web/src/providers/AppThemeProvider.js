@@ -1,4 +1,6 @@
 "use client";
+import { userStorage } from '@/utils/userStorage.mjs';
+
 
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { CssBaseline } from '@mui/material';
@@ -81,7 +83,7 @@ export function AppThemeProvider({ children }) {
 
   const reloadFromStorage = useCallback(() => {
     try {
-      setSettings(readThemeSettings(window.localStorage));
+      setSettings(readThemeSettings(userStorage));
     } catch (error) {
       console.warn('Unable to load theme settings:', error);
       setSettings(DEFAULT_THEME_SETTINGS);
@@ -125,7 +127,7 @@ export function AppThemeProvider({ children }) {
     const normalized = mode === 'light' ? 'light' : 'dark';
     setSettings((current) => ({ ...current, mode: normalized }));
     try {
-      window.localStorage.setItem('themeMode', normalized);
+      userStorage.setItem('themeMode', normalized);
     } catch (error) {
       console.warn('Unable to persist theme mode:', error);
     }
@@ -135,7 +137,7 @@ export function AppThemeProvider({ children }) {
     setSettings((current) => {
       const nextMode = current.mode === 'light' ? 'dark' : 'light';
       try {
-        window.localStorage.setItem('themeMode', nextMode);
+        userStorage.setItem('themeMode', nextMode);
       } catch (error) {
         console.warn('Unable to persist theme mode:', error);
       }

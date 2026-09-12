@@ -1,6 +1,28 @@
 const paintingWorkspaceenUS = {
   "painting": {
     "workspace": {
+      "toolRecovery": {
+        "unavailable": "The original task succeeded, but its temporary result has expired or is damaged. Using the tool again after clearing creates a new task and may incur another charge.",
+        "title": "{tool} task #{id} has ended",
+        "vibe-encode": "Vibe encoding",
+        "upscale": "Upscale",
+        "director": "Director editing",
+        "unknown": "The official result is unknown and may already have been charged. Clearing the local record does not execute it again; using the tool again creates a new task.",
+        "ended": "Clear the local record to use the tool again manually. A new task may incur a new charge. The original server record is retained.",
+        "clear": "Clear ended record",
+        "cleared": "Local block cleared. No new task was submitted. Use the original tool again when you want to retry.",
+        "checkFailed": "Could not confirm the terminal status. The record is retained. Check your connection and retry."
+      },
+      "studioLibrary": {
+        "save": "Save to Studio library",
+        "uploading": "Uploading the current image…",
+        "processing": "Image received. Processing for your library…",
+        "ready": "Saved to your private Studio library.",
+        "quota": "Studio storage is full. Free up space and try again.",
+        "failed": "Image processing failed. Retry processing in the Studio library.",
+        "pending": "Still processing. Click save again later to check the result.",
+        "error": "Save not confirmed. Check your connection and retry; the same image will not be duplicated."
+      },
       "errors": {
         "pollingFailed": "Could not retrieve the generation result.",
         "inpaintSourceRequired": "Choose an inpaint source image first.",
@@ -213,7 +235,7 @@ const paintingWorkspaceenUS = {
         "promptGuidanceRescaleHelp": "Reduce overexposure and color shift at high CFG values.",
         "noiseSchedule": "Noise schedule",
         "batchSize": "Sequential image count",
-        "batchSizeHelp": "Number of single-image requests sent in sequence; each request generates exactly one image.",
+        "batchSizeHelp": "Number of images in this batch, up to 16.",
         "extraConfiguration": "Additional configuration",
         "extraConfigurationWarning": "Change these settings only if you understand their effects.",
         "experimentalWarning": "Experimental features may affect generation stability.",
@@ -301,6 +323,12 @@ const paintingWorkspaceenUS = {
         "vibeConverted": "Converted",
         "vibePendingConversion": "Pending conversion",
         "vibeConverting": "Converting…",
+        "vibeInterrupted": "Previous conversion interrupted",
+        "vibeInterruptedStudio": "The page was interrupted. Recovery retrieves the original Studio result without encoding again.",
+        "vibeInterruptedDirect": "The previous encoding result is unknown and may have been charged. Encoding again may incur another charge.",
+        "recoverVibe": "Recover original encoding",
+        "retryInterruptedVibe": "Encode again (may incur another charge)",
+        "vibeRecoveryMissing": "The original encoding record is missing. No request was created. Click convert again only if you want a new encoding.",
         "vibeConversionFailed": "Conversion failed",
         "referenceImageAlt": "Reference image",
         "downloadVibeFile": "Download Vibe file",

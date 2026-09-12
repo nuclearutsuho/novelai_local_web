@@ -1,6 +1,11 @@
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import useImageGeneration from './useImageGeneration';
 import { revokeObjectUrl } from '@/utils/mediaAssets';
+import StudioTaskRecovery from './StudioTaskRecovery';
+import StudioToolRecovery from './StudioToolRecovery';
+import apiClient from '@/utils/ApiClient';
+import { currentStorageScope } from '@/utils/userStorage.mjs';
+import { publishGeneratedItem } from '@/utils/imageOperationLifecycle.mjs';
 
 const GenerationContext = createContext();
 
@@ -27,13 +32,24 @@ export const GenerationProvider = ({ children }) => {
   const [generatedItems, setGeneratedItems] = useState([]);
   const [currentItem, setCurrentItem] = useState(null);
   const generatedItemsRef = useRef([]);
+  const workspaceRecoveryRef = useRef(null);
+  const mountedRef = useRef(false);
+  const ownerRef = useRef(currentStorageScope());
+  const registerWorkspaceRecovery = useCallback((handler) => {
+    workspaceRecoveryRef.current = handler;
+    return () => { if (workspaceRecoveryRef.current === handler) workspaceRecoveryRef.current = null; };
+  }, []);
 
   useEffect(() => {
     generatedItemsRef.current = generatedItems;
   }, [generatedItems]);
 
-  useEffect(() => () => {
-    generatedItemsRef.current.forEach(revokeGeneratedItemUrls);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      generatedItemsRef.current.forEach(revokeGeneratedItemUrls);
+    };
   }, []);
 
   const appendGeneratedItem = useCallback((item) => {
@@ -43,10 +59,27 @@ export const GenerationProvider = ({ children }) => {
       ...item,
       id: item.id || `image-${Date.now()}-${Math.random()}`,
     };
-    setGeneratedItems((previous) => [...previous, normalizedItem]);
-    setCurrentItem(normalizedItem);
-    return normalizedItem;
+    return publishGeneratedItem({ item: normalizedItem,
+      isCurrent: () => mountedRef.current && currentStorageScope() === ownerRef.current,
+      release: revokeGeneratedItemUrls,
+      append: accepted => {
+        setGeneratedItems(previous => [...previous, accepted]);
+        setCurrentItem(accepted);
+      },
+      acknowledge: accepted => {
+        if (accepted.studioRequestId) apiClient.studioTasks.acknowledge(accepted.studioRequestId);
+        if (accepted.studioDirectorReceipt) apiClient.studioDirectors.acknowledge(accepted.studioDirectorReceipt);
+      },
+    });
   }, []);
+
+  const recoverItem = useCallback(async (item, workspace, checkOwner) => {
+    checkOwner();
+    if (workspace) {
+      if (!workspaceRecoveryRef.current) throw new Error('STUDIO_WORKSPACE_NOT_MOUNTED');
+      await workspaceRecoveryRef.current(item, workspace, checkOwner);
+    } else appendGeneratedItem(item);
+  }, [appendGeneratedItem]);
 
   const updateGeneratedItem = useCallback((itemId, updates) => {
     if (!itemId || !updates) return;
@@ -66,7 +99,8 @@ export const GenerationProvider = ({ children }) => {
 
   const generatePreview = useCallback(async (params) => {
     resetGeneration();
-    const imageResult = await startGeneration(params);
+    // 预览要等原版画布完成图片加载和蒙版处理后，才能确认领取 Studio 结果。
+    const imageResult = await startGeneration({ ...params, studioDeferAcknowledgement: true });
     return imageResult ? { ...imageResult, type: 'image' } : null;
   }, [resetGeneration, startGeneration]);
 
@@ -105,6 +139,7 @@ export const GenerationProvider = ({ children }) => {
     batchStatus,
     generate,
     generatePreview,
+    registerWorkspaceRecovery,
     appendGeneratedItem,
     updateGeneratedItem,
     resetGeneration,
@@ -116,6 +151,8 @@ export const GenerationProvider = ({ children }) => {
 
   return (
     <GenerationContext.Provider value={contextValue}>
+      <StudioTaskRecovery onRecovered={recoverItem} />
+      <StudioToolRecovery />
       {children}
     </GenerationContext.Provider>
   );

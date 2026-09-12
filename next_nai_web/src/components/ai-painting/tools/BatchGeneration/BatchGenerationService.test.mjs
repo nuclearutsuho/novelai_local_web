@@ -6,6 +6,28 @@ const source = await readFile(new URL('./BatchGenerationService.js', import.meta
 const serviceModule = await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`);
 const { BatchGenerationController } = serviceModule;
 
+test('默认计时器保持浏览器原生调用上下文，等待可正常取消', async (t) => {
+  let scheduled = 0;
+  let cleared = 0;
+  t.mock.method(globalThis, 'setTimeout', function () {
+    assert.ok(this === undefined || this === globalThis, '不能以 clock 对象调用原生计时器');
+    scheduled++;
+    return 7;
+  });
+  t.mock.method(globalThis, 'clearTimeout', function (timer) {
+    assert.ok(this === undefined || this === globalThis);
+    assert.equal(timer, 7);
+    cleared++;
+  });
+  const controller = new BatchGenerationController({ now: () => 0 });
+  controller.initialize(2);
+  const waiting = controller.wait(15);
+  controller.cancel();
+  await waiting;
+  assert.equal(scheduled, 1);
+  assert.equal(cleared, 1);
+});
+
 const createFakeClock = () => {
   let currentTime = 0;
   let nextTimerId = 1;
@@ -40,37 +62,16 @@ const createFakeClock = () => {
   };
 };
 
-test('批次 1/8 边界只在非末张后等待 15 秒', async () => {
-  const singleClock = createFakeClock();
-  const single = new BatchGenerationController(singleClock);
-  single.initialize(1);
-  assert.equal(single.getStatus().total, 1);
-  single.completeCurrentImage(true);
-  assert.equal(single.shouldContinue(), false);
-  assert.equal(singleClock.pendingCount(), 0);
-
-  const batchClock = createFakeClock();
-  const batch = new BatchGenerationController(batchClock);
-  batch.initialize(8);
-  assert.equal(batch.getStatus().total, 8);
-  batch.completeCurrentImage(true);
-  assert.equal(batch.shouldContinue(), true);
-
-  let waitResolved = false;
-  const waitPromise = batch.wait(batch.config.bufferTime).then(() => { waitResolved = true; });
-  batchClock.advanceBy(14_000);
-  await Promise.resolve();
-  assert.equal(waitResolved, false);
-  assert.equal(batch.getStatus().waitingTime, 1);
-  batchClock.advanceBy(1_000);
-  await waitPromise;
-  assert.equal(waitResolved, true);
+test('部署版批次不再添加人为等待，16 张完成后正确结束', async () => {
+  const clock = createFakeClock();
+  const batch = new BatchGenerationController(clock);
+  batch.initialize(16);
+  await batch.wait(batch.config.bufferTime);
+  assert.equal(clock.pendingCount(), 0);
   assert.equal(batch.getStatus().waitingTime, 0);
-
-  for (let index = 1; index < 8; index += 1) batch.completeCurrentImage(true);
-  assert.equal(batch.getStatus().completed, 8);
+  for (let index = 0; index < 16; index += 1) batch.completeCurrentImage(true);
+  assert.equal(batch.getStatus().completed, 16);
   assert.equal(batch.shouldContinue(), false);
-  assert.equal(batchClock.pendingCount(), 0);
 });
 
 test('首张错误立即停止且不会继续等待', () => {
@@ -90,7 +91,7 @@ test('卸载取消会立即打断等待且不再发送后续批次', async () =>
   const controller = new BatchGenerationController(clock);
   controller.initialize(8);
   controller.completeCurrentImage(true);
-  const pendingWait = controller.wait(controller.config.bufferTime);
+  const pendingWait = controller.wait(1);
   assert.equal(clock.pendingCount(), 1);
 
   controller.cancel();
@@ -99,6 +100,6 @@ test('卸载取消会立即打断等待且不再发送后续批次', async () =>
   assert.equal(controller.getStatus().waitingTime, 0);
   assert.equal(clock.pendingCount(), 0);
 
-  clock.advanceBy(15_000);
+  clock.advanceBy(1_000);
   assert.equal(clock.pendingCount(), 0);
 });

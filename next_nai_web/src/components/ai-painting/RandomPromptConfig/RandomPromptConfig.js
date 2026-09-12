@@ -1,3 +1,4 @@
+import { userStorage } from '@/utils/userStorage.mjs';
 // RandomPromptConfig.js
 import React, { useState, useEffect, useCallback } from 'react';
 import {
@@ -40,7 +41,7 @@ const processSequentialExtractionForCategoryItems = (category) => {
   }
 
   const storageKey = `category_item_position_${category.id || category.name}`; // 使用ID确保唯一性
-  let currentPosition = parseInt(localStorage.getItem(storageKey), 10);
+  let currentPosition = parseInt(userStorage.getItem(storageKey), 10);
 
   if (isNaN(currentPosition) || currentPosition === null) {
     currentPosition = category.startPosition || 0;
@@ -59,7 +60,7 @@ const processSequentialExtractionForCategoryItems = (category) => {
   }
 
   const nextPosition = (currentPosition + extractCount) % category.items.length;
-  localStorage.setItem(storageKey, nextPosition.toString());
+  userStorage.setItem(storageKey, nextPosition.toString());
 
   return result;
 };
@@ -227,7 +228,7 @@ const RandomPromptConfig = ({ open, onClose, onInsert, onError = null }) => {
         const numToPick = Math.min(numToExtract || 1, availableCategoriesInCollection.length);
         if (categoryExtractMode === 'sequential') {
           const storageKey = `collection_category_position_${collection.id || collection.name}`;
-          let currentCollectionCatPos = parseInt(localStorage.getItem(storageKey), 10);
+          let currentCollectionCatPos = parseInt(userStorage.getItem(storageKey), 10);
 
           if (isNaN(currentCollectionCatPos) || currentCollectionCatPos === null) {
             currentCollectionCatPos = categoryStartPosition || 0;
@@ -241,7 +242,7 @@ const RandomPromptConfig = ({ open, onClose, onInsert, onError = null }) => {
             categoriesToProcess.push(availableCategoriesInCollection[catIndex]);
           }
           const nextCollectionCatPos = (currentCollectionCatPos + numToPick) % availableCategoriesInCollection.length;
-          localStorage.setItem(storageKey, nextCollectionCatPos.toString());
+          userStorage.setItem(storageKey, nextCollectionCatPos.toString());
         } else {
           categoriesToProcess = [...availableCategoriesInCollection]
             .sort(() => 0.5 - Math.random())

@@ -109,7 +109,7 @@ function buildGenerationRequest(params) {
  * @param {Function} onProgress 原页面进度回调。
  * @returns {Promise<object>} 原生成上下文可直接消费的结果。
  */
-const generateImage = async (requestParams, onProgress = () => {}) => {
+const generateImage = async (requestParams, onProgress = () => {}, checkOwner = () => {}) => {
   const params = sanitizeNovelAIV5GenerationParams({
     ...requestParams,
     model: normalizePaintingModelId(requestParams?.model),
@@ -117,16 +117,18 @@ const generateImage = async (requestParams, onProgress = () => {}) => {
   onProgress({ status: 'processing', queuePosition: 0, model: params.model });
 
   try {
-    const response = await apiClient.generateImage(buildGenerationRequest(params));
+    checkOwner();
+    const response = await apiClient.generateImage(buildGenerationRequest(params), onProgress, requestParams.studioWorkspace);
+    checkOwner();
     const generatedImage = response?.images?.[0];
-    if (!generatedImage?.data) {
+    if (!generatedImage?.data && !generatedImage?.blob) {
       return createGenerationFailure(GENERATION_ERROR_CODES.INVALID_GENERATED_FILE, {
         category: 'protocol',
         model: params.model,
       });
     }
 
-    const cachedBlob = createBlobFromBase64(
+    const cachedBlob = generatedImage.blob || createBlobFromBase64(
       generatedImage.data,
       generatedImage.mime_type || 'image/png',
     );
@@ -146,6 +148,8 @@ const generateImage = async (requestParams, onProgress = () => {}) => {
 
     return {
       success: true,
+      studioRequestId: response.studio_request_id || null,
+      studioDirectorReceipt: response.studio_director_receipt || null,
       image: displayUrl,
       imageUrl: displayUrl,
       remoteImageUrl: null,

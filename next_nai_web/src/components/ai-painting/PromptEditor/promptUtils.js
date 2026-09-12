@@ -1,3 +1,4 @@
+import { userStorage } from '@/utils/userStorage.mjs';
 // promptUtils.js
 /**
  * Utility functions for prompt text manipulation
@@ -163,7 +164,7 @@ const processSequentialItemsInCategory = (category) => {
   
   // 使用ID确保唯一性，如果ID不存在则回退到名称 (与RandomPromptConfig.js一致)
   const storageKey = `category_item_position_${category.id || category.name}`; 
-  let currentPosition = parseInt(localStorage.getItem(storageKey), 10);
+  let currentPosition = parseInt(userStorage.getItem(storageKey), 10);
 
   // 如果localStorage没有，则使用类别配置的起始位置，若无则为0
   if (isNaN(currentPosition) || currentPosition === null) {
@@ -184,7 +185,7 @@ const processSequentialItemsInCategory = (category) => {
   }
   
   const nextPosition = (currentPosition + extractCount) % category.items.length;
-  localStorage.setItem(storageKey, nextPosition.toString());
+  userStorage.setItem(storageKey, nextPosition.toString());
   
   return result;
 };
@@ -269,7 +270,7 @@ export const processRandomPrompts = (text, randomPromptConfig) => {
       if (categoryExtractMode === 'sequential') {
         // 使用ID确保唯一性，如果ID不存在则回退到名称 (与RandomPromptConfig.js一致)
         const storageKey = `collection_category_position_${collection.id || collection.name}`;
-        let currentCollectionCatPos = parseInt(localStorage.getItem(storageKey), 10);
+        let currentCollectionCatPos = parseInt(userStorage.getItem(storageKey), 10);
 
         // 如果localStorage没有，则使用集合配置的起始位置，若无则为0
         if (isNaN(currentCollectionCatPos) || currentCollectionCatPos === null) {
@@ -285,7 +286,7 @@ export const processRandomPrompts = (text, randomPromptConfig) => {
           categoriesToProcess.push(availableCategoriesInCollection[catIndex]);
         }
         const nextCollectionCatPos = (currentCollectionCatPos + numToPick) % availableCategoriesInCollection.length;
-        localStorage.setItem(storageKey, nextCollectionCatPos.toString());
+        userStorage.setItem(storageKey, nextCollectionCatPos.toString());
       } else { // random category extraction from collection
         categoriesToProcess = [...availableCategoriesInCollection]
           .sort(() => 0.5 - Math.random())

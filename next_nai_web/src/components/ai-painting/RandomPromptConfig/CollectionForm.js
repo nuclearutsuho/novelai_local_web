@@ -1,3 +1,4 @@
+import { userStorage } from '@/utils/userStorage.mjs';
 // CollectionForm.js
 import React, { useState } from 'react';
 import {
@@ -97,7 +98,7 @@ const CollectionForm = ({ collections = [], categories = [], onChange, onInsert,
       let initialCategoryStartPosition = collection.categoryStartPosition || 0;
       if (collection.categoryExtractMode === 'sequential') {
         const storageKey = `collection_category_position_${collection.id || collection.name}`;
-        const storedPosition = localStorage.getItem(storageKey);
+        const storedPosition = userStorage.getItem(storageKey);
         if (storedPosition !== null) {
           initialCategoryStartPosition = parseInt(storedPosition, 10);
           if (isNaN(initialCategoryStartPosition)) initialCategoryStartPosition = collection.categoryStartPosition || 0; // 防止NaN
@@ -183,7 +184,7 @@ const CollectionForm = ({ collections = [], categories = [], onChange, onInsert,
              const storageKey = `collection_category_position_${collectionId}`;
              // 只有当用户明确在UI中修改并保存时，才更新localStorage中的“配置起始点”
              // 否则，让generateExample去管理动态的当前轮询点
-             // localStorage.setItem(storageKey, categoryStartPosition.toString());
+             // userStorage.setItem(storageKey, categoryStartPosition.toString());
         }
     }
     

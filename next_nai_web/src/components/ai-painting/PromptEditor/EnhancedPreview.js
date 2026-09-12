@@ -1,3 +1,4 @@
+import { userStorage } from '@/utils/userStorage.mjs';
 // EnhancedPreview.js
 import React, { useState, useEffect } from 'react';
 import { Box, Typography, Tooltip, Paper, Chip } from '@mui/material';
@@ -166,7 +167,7 @@ const getRandomTagPreview = (categoryInfo, t) => {
   if (extractMode === 'sequential') {
     // 使用ID确保唯一性 (与 promptUtils.js 和 RandomPromptConfig.js 一致)
     const storageKey = `category_item_position_${id || name}`; 
-    const storedPosition = localStorage.getItem(storageKey);
+    const storedPosition = userStorage.getItem(storageKey);
     if (storedPosition !== null) {
         const parsedStoredPosition = parseInt(storedPosition, 10);
         if (!isNaN(parsedStoredPosition)) {
@@ -308,7 +309,7 @@ const getRandomCollectionPreview = (collectionInfo, randomPromptConfig, t) => {
   if (extractNCategories && categoryExtractMode === 'sequential' && categoriesInCollection.length > 0) {
     // 使用ID确保唯一性 (与 promptUtils.js 和 RandomPromptConfig.js 一致)
     const storageKey = `collection_category_position_${id || name}`;
-    const storedPosition = localStorage.getItem(storageKey);
+    const storedPosition = userStorage.getItem(storageKey);
     if (storedPosition !== null) {
         const parsedStoredPosition = parseInt(storedPosition, 10);
         if(!isNaN(parsedStoredPosition)) {

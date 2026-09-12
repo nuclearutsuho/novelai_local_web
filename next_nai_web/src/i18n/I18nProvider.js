@@ -1,4 +1,5 @@
 "use client";
+import { userStorage } from '@/utils/userStorage.mjs';
 
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import coreZhCN from './locales/core.zh-CN';
@@ -25,7 +26,7 @@ const I18nContext = createContext(null);
 const warnedMissingKeys = new Set();
 
 /**
- * 从浏览器环境读取已保存的语言；没有有效标记时使用英文。
+ * 从浏览器环境读取已保存的语言；没有有效标记时使用简体中文。
  *
  * Args:
  *   storage: localStorage 风格的存储对象。
@@ -54,8 +55,8 @@ export function LanguageProvider({ children }) {
   useEffect(() => {
     let initialLocale = DEFAULT_LOCALE;
     try {
-      initialLocale = readInitialLocale(window.localStorage);
-      window.localStorage.setItem(LOCALE_STORAGE_KEY, initialLocale);
+      initialLocale = readInitialLocale(userStorage);
+      // 默认语言不写成用户偏好；仅在用户主动切换语言时保存。
     } catch (error) {
       console.warn('Unable to initialize locale storage:', error);
       initialLocale = DEFAULT_LOCALE;
@@ -86,7 +87,7 @@ export function LanguageProvider({ children }) {
     const normalized = normalizeLocale(nextLocale, DEFAULT_LOCALE);
     setLocaleState(normalized);
     try {
-      window.localStorage.setItem(LOCALE_STORAGE_KEY, normalized);
+      userStorage.setItem(LOCALE_STORAGE_KEY, normalized);
     } catch (error) {
       console.warn('Unable to persist locale:', error);
     }

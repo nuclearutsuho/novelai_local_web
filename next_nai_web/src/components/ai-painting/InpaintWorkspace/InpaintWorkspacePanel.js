@@ -959,8 +959,10 @@ const InpaintWorkspacePanel = forwardRef(({
     });
   }, [hasSourceImage, outputAspectRatio, outputResolution, stageSize]);
 
-  const importSourceImage = useCallback(async (source) => {
+  const importSourceImage = useCallback(async (source, checkOwner = () => {}) => {
+    checkOwner();
     const image = await loadImageElement(source.src);
+    checkOwner();
     const nextCanvas = createOffscreenCanvas(image.width, image.height);
     const nextCtx = nextCanvas.getContext('2d');
     nextCtx.drawImage(image, 0, 0, nextCanvas.width, nextCanvas.height);
@@ -2062,6 +2064,40 @@ const InpaintWorkspacePanel = forwardRef(({
       return true;
     },
     hasSourceImage: () => hasSourceImage,
+    exportStudioWorkspace: () => {
+      const content = buildSourceContentSnapshot();
+      const request = lastRequestRef.current;
+      if (!content?.canvas || !request) throw new Error('STUDIO_WORKSPACE_NOT_READY');
+      const { maskCanvas, ...serializableRequest } = request;
+      return { version: 1, content: content.canvas.toDataURL('image/png'), bounds: content.bounds,
+        request: serializableRequest, mask: maskCanvas?.toDataURL('image/png') || null,
+        strokes: filterStrokesByTarget(stateRef.current.strokes, MASK_DRAW_TARGET).map(cloneStroke) };
+    },
+    restoreStudioWorkspace: async (snapshot, checkOwner = () => {}) => {
+      checkOwner();
+      if (snapshot?.version !== 1 || !snapshot.content || !snapshot.bounds || !snapshot.request) {
+        throw new Error('STUDIO_WORKSPACE_INVALID');
+      }
+      // 蒙版先加载完，再恢复画布；加载期间切换账号不能写入旧快照。
+      const maskImage = snapshot.mask ? await loadImageElement(snapshot.mask) : null;
+      checkOwner();
+      // 请求快照要求可再次导出的 Canvas；仅保存 HTMLImageElement 会让下一次生成的 toDataURL 失败。
+      const maskCanvas = maskImage ? createOffscreenCanvas(maskImage.width, maskImage.height) : null;
+      if (maskCanvas) maskCanvas.getContext('2d').drawImage(maskImage, 0, 0);
+      await importSourceImage({ src: snapshot.content }, checkOwner);
+      checkOwner();
+      contentBoundsRef.current = snapshot.bounds;
+      lastRequestRef.current = { ...snapshot.request, maskCanvas };
+      sessionBaseCanvasRef.current = contentCanvasRef.current;
+      sessionBaseBoundsRef.current = snapshot.bounds;
+      // 恢复回调紧接着安装预览，不能等 React effect 才更新画笔状态。
+      stateRef.current.strokes = snapshot.strokes || [];
+      setStrokes(snapshot.strokes || []);
+      setDisabledOriginalImage(Boolean(snapshot.request.disabledOriginalImage));
+      setColorCorrect(snapshot.request.colorCorrect !== false);
+      setInpaintStrength(snapshot.request.inpaintStrength ?? 1);
+      return true;
+    },
     prepareGeneration: () => {
       if (pendingPatchesRef.current.length > 0 && lastRequestRef.current) {
         setIsGenerationLocked(true);
@@ -2081,7 +2117,8 @@ const InpaintWorkspacePanel = forwardRef(({
       setShowMaskPreview(false);
       return payload;
     },
-    applyGeneratedPatch: async (item) => {
+    applyGeneratedPatch: async (item, checkOwner = () => {}) => {
+      checkOwner();
       if (!lastRequestRef.current) {
         return false;
       }
@@ -2090,6 +2127,7 @@ const InpaintWorkspacePanel = forwardRef(({
         ? { src: item }
         : item;
       const image = await loadImageElement(previewItem.src);
+      checkOwner();
       const maskedPatchResult = lastRequestRef.current.generationMode === 'inpaint' && lastRequestRef.current.maskCanvas
         ? extractMaskedPatchCanvas({
           patchImage: image,
@@ -2134,7 +2172,7 @@ const InpaintWorkspacePanel = forwardRef(({
       setIsGenerationLocked(false);
     },
     clearWorkspace,
-  }), [buildGenerationPayload, clearPendingPatchSession, clearWorkspace, hasSourceImage, importSourceImage, preserveMaskStrokesAfterGeneration, sourceImage]);
+  }), [buildGenerationPayload, buildSourceContentSnapshot, clearPendingPatchSession, clearWorkspace, hasSourceImage, importSourceImage, preserveMaskStrokesAfterGeneration, sourceImage]);
 
   const pendingPatchBarPosition = pendingPatch && viewportRect
     ? {

@@ -14,7 +14,8 @@ import {
   useMediaQuery,
   useTheme,
   Paper,
-  Divider
+  Divider,
+  Alert
 } from '@mui/material';
 import { Close as CloseIcon } from '@mui/icons-material';
 
@@ -47,6 +48,9 @@ const ImageEditor = ({
   
   const [activeMainTool, setActiveMainTool] = useState(null);
   const [activeRadioTool, setActiveRadioTool] = useState(null);
+  const [selectionConfirmed, setSelectionConfirmed] = useState(false);
+  // 选择提示留在编辑器内，不用同步弹窗阻断预览、保存或后台任务轮询。
+  useEffect(() => { setSelectionConfirmed(false); }, [activeRadioTool, open]);
   const [editedImageUrl, setEditedImageUrl] = useState(null);
 
   const [emotionParams, setEmotionParams] = useState(
@@ -291,11 +295,7 @@ const ImageEditor = ({
             <Button 
               variant="contained" 
               color="primary"
-              onClick={() => {
-                alert(t('painting.tools.imageEditor.effectSelected', {
-                  effect: getToolLabel(activeRadioTool),
-                }));
-              }}
+              onClick={() => setSelectionConfirmed(true)}
               sx={{ 
                 borderRadius: 2,
                 px: 3
@@ -304,6 +304,9 @@ const ImageEditor = ({
               {t('painting.tools.imageEditor.confirmSelection')}
             </Button>
           </Box>
+          {selectionConfirmed && <Alert severity="success" sx={{ mt: 2 }}>
+            {t('painting.tools.imageEditor.effectSelected', { effect: getToolLabel(activeRadioTool) })}
+          </Alert>}
         </Paper>
       );
     }

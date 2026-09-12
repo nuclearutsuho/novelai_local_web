@@ -76,6 +76,8 @@ const VibeImageComponent = ({
     };
 
     switch(status) {
+      case 'interrupted':
+        return <Chip icon={<WarningIcon />} label={t('painting.workspace.parameters.vibeInterrupted')} color="warning" {...chipProps} />;
       case 'converted':
         return <Chip icon={<CheckCircleIcon />} label={t('painting.workspace.parameters.vibeConverted')} color="success" {...chipProps} />;
       case 'unconverted':
@@ -91,6 +93,12 @@ const VibeImageComponent = ({
 
   return (
     <Card elevation={0} sx={{ mb: 1, borderRadius: 1.5, overflow: 'hidden', border: '1px solid', borderColor: isDisabled ? 'warning.light' : 'divider' }}>
+      {status === 'interrupted' && <Alert severity="warning" sx={{ m: 1 }}>
+        {t(`painting.workspace.parameters.${vibeItem.recoveryMode === 'studio' ? 'vibeInterruptedStudio' : 'vibeInterruptedDirect'}`)}
+        <Button onClick={() => onConvert(index)}>
+          {t(`painting.workspace.parameters.${vibeItem.recoveryMode === 'studio' ? 'recoverVibe' : 'retryInterruptedVibe'}`)}
+        </Button>
+      </Alert>}
       <Box sx={{ 
         display: 'flex', 
         p: 1,
@@ -193,7 +201,7 @@ const VibeImageComponent = ({
                   <IconButton
                     size="small"
                     onClick={() => onConvert(index)}
-                    disabled={status === 'converting' || status === 'converted'}
+                    disabled={['converting', 'converted', 'interrupted'].includes(status)}
                     sx={{
                       position: 'absolute',
                       top: 4,
@@ -237,7 +245,7 @@ const VibeImageComponent = ({
             )}
           </Box>
           {/* ID 信息 (位于图像下方) */}
-          {isV4Vibe && encodingInfo.name && (
+          {isV4Vibe && encodingInfo?.name && (
             <Typography 
               variant="caption" 
               color="text.secondary" 

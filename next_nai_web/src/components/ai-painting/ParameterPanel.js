@@ -1,4 +1,9 @@
 "use client";
+import { currentStorageScope, userStorage } from '@/utils/userStorage.mjs';
+import { buildVibeBundle } from './utils/vibeExport.mjs';
+import { cacheImportedVibe, downloadVibeZip, selectVibeEncoding } from './utils/vibeTransferOperations.mjs';
+import { applyVibeEncodingResult, createVibeInformationUpdater } from './utils/vibeInformationUpdater.mjs';
+
 
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { resizeImage, checkResolutionLimit } from './tools/ImageTools/ImageResizer';
@@ -171,6 +176,25 @@ const ParameterPanel = ({
   const [characterEditorOpen, setCharacterEditorOpen] = useState(false);
   const [editingCharacterPrompt, setEditingCharacterPrompt] = useState({ index: null, field: '', text: '' });
   const smeaRef = useRef(false);
+  const vibeOwnerRef = useRef(currentStorageScope());
+  const vibeMountedRef = useRef(false);
+  useEffect(() => {
+    vibeMountedRef.current = true;
+    return () => { vibeMountedRef.current = false; };
+  }, []);
+  const isVibeOwner = () => vibeMountedRef.current && vibeOwnerRef.current === currentStorageScope();
+  const checkVibeOwner = () => {
+    if (!isVibeOwner()) throw Object.assign(new Error('Vibe 操作身份已变化'), { code: 'STUDIO_IDENTITY_CHANGED' });
+  };
+  const vibeModelRef = useRef(params.model);
+  vibeModelRef.current = params.model;
+  const vibeInformationUpdaterRef = useRef(null);
+  if (!vibeInformationUpdaterRef.current) {
+    vibeInformationUpdaterRef.current = createVibeInformationUpdater({
+      readCache: getVibeFromCache, modelType: getV4ModelType,
+      getModel: () => vibeModelRef.current, isOwner: isVibeOwner, updateItems: setVibeImages,
+    });
+  }
   const [editedImageData, setEditedImageData] = useState(null);
   const [directorToolParams, setDirectorToolParams] = useState(null);
 
@@ -202,7 +226,7 @@ const ParameterPanel = ({
           // 不保存 cached images 到 localStorage，因为它们太大且有缓存机制
           if (key !== 'director_reference_images_cached') {
             try {
-              localStorage.setItem(`aiImageParams_${key}`, JSON.stringify(value));
+              userStorage.setItem(`aiImageParams_${key}`, JSON.stringify(value));
             } catch (e) {
               console.error(`保存参数到localStorage失败 (key: ${key}):`, e);
               if (e.name === 'QuotaExceededError') {
@@ -212,7 +236,7 @@ const ParameterPanel = ({
           }
         } else {
           delete newParams[key];
-          localStorage.removeItem(`aiImageParams_${key}`);
+          userStorage.removeItem(`aiImageParams_${key}`);
         }
         return newParams;
       });
@@ -232,9 +256,9 @@ const ParameterPanel = ({
       width: defaultParams.width.toString(),
       height: defaultParams.height.toString()
     });
-    Object.keys(defaultParams).forEach(key => localStorage.removeItem('aiImageParams_' + key));
-    localStorage.removeItem('aiImageParams_ucPreset');
-    localStorage.removeItem('aiImageParams_ucPresetId');
+    Object.keys(defaultParams).forEach(key => userStorage.removeItem('aiImageParams_' + key));
+    userStorage.removeItem('aiImageParams_ucPreset');
+    userStorage.removeItem('aiImageParams_ucPresetId');
     smeaRef.current = defaultParams.smea;
     if (onParamChange) {
       Object.keys(defaultParams).forEach(key => setTimeout(() => onParamChange(key, defaultParams[key]), 0));
@@ -248,14 +272,14 @@ const ParameterPanel = ({
   };
 
   useEffect(() => {
-    localStorage.removeItem('aiImageParams_ucPreset');
-    localStorage.removeItem('aiImageParams_ucPresetId');
+    userStorage.removeItem('aiImageParams_ucPreset');
+    userStorage.removeItem('aiImageParams_ucPresetId');
     let initialParams = { ...defaultParams };
     Object.keys(defaultParams).forEach(key => {
       // [修复] 不从 localStorage 加载 reference image，因为它没有被存入
       if (key === 'director_reference_images' || key === 'director_reference_images_cached') return;
 
-      const cached = localStorage.getItem('aiImageParams_' + key);
+      const cached = userStorage.getItem('aiImageParams_' + key);
       if (cached !== null) {
         try {
           initialParams[key] = JSON.parse(cached);
@@ -281,19 +305,19 @@ const ParameterPanel = ({
     if (normalizedModel !== initialParams.model) {
       // 旧缓存或外部参数中的下线模型必须立即回落，避免隐藏选项继续进入生成请求。
       initialParams.model = normalizedModel;
-      localStorage.setItem('aiImageParams_model', JSON.stringify(normalizedModel));
+      userStorage.setItem('aiImageParams_model', JSON.stringify(normalizedModel));
     }
     const normalizedInitialParams = normalizeNovelAISmeaParams(initialParams);
     const normalizedNovelAIParams = sanitizeNovelAIV5GenerationParams(normalizedInitialParams);
     if (normalizedNovelAIParams.steps !== normalizedInitialParams.steps) {
       // V5 普通模式现以 23 步为上限，旧缓存必须同步回写，避免刷新后再次越界。
-      localStorage.setItem('aiImageParams_steps', JSON.stringify(normalizedNovelAIParams.steps));
+      userStorage.setItem('aiImageParams_steps', JSON.stringify(normalizedNovelAIParams.steps));
     }
 
     if (isV4Model(normalizedInitialParams.model)) {
-      localStorage.removeItem("aiImageParams_smea");
-      localStorage.removeItem("aiImageParams_dyn");
-      localStorage.removeItem("aiImageParams_autoSmea");
+      userStorage.removeItem("aiImageParams_smea");
+      userStorage.removeItem("aiImageParams_dyn");
+      userStorage.removeItem("aiImageParams_autoSmea");
     }
 
     setParams(normalizedNovelAIParams);
@@ -306,7 +330,7 @@ const ParameterPanel = ({
   }, [defaultParams, externalParams]);
 
   useEffect(() => {
-    const savedCharacterTabs = localStorage.getItem('characterTabs');
+    const savedCharacterTabs = userStorage.getItem('characterTabs');
     if (savedCharacterTabs) {
       try {
         const parsedTabs = JSON.parse(savedCharacterTabs);
@@ -338,7 +362,7 @@ const ParameterPanel = ({
 
   useEffect(() => {
     if (loadedFromCache) {
-      localStorage.setItem('characterTabs', JSON.stringify(characterTabs));
+      userStorage.setItem('characterTabs', JSON.stringify(characterTabs));
     }
   }, [characterTabs, loadedFromCache]);
 
@@ -374,9 +398,9 @@ const ParameterPanel = ({
 
       if (params.smea || params.dyn || params.autoSmea) {
         setParams(prev => normalizeNovelAISmeaParams(prev));
-        localStorage.removeItem("aiImageParams_smea");
-        localStorage.removeItem("aiImageParams_dyn");
-        localStorage.removeItem("aiImageParams_autoSmea");
+        userStorage.removeItem("aiImageParams_smea");
+        userStorage.removeItem("aiImageParams_dyn");
+        userStorage.removeItem("aiImageParams_autoSmea");
 
         if (onParamChange) {
           setTimeout(() => {
@@ -392,7 +416,7 @@ const ParameterPanel = ({
     smeaRef.current = params.smea;
     if (!params.smea && params.dyn) {
       setParams(prev => ({ ...prev, dyn: false }));
-      localStorage.removeItem("aiImageParams_dyn");
+      userStorage.removeItem("aiImageParams_dyn");
       if (onParamChange) setTimeout(() => onParamChange('dyn', false), 0);
     }
   }, [params.model, params.smea, params.dyn, params.autoSmea, onParamChange]);
@@ -428,8 +452,8 @@ const ParameterPanel = ({
       if (!checked) newParams.dyn = false;
       return newParams;
     });
-    localStorage.setItem("aiImageParams_smea", JSON.stringify(checked));
-    if (!checked) localStorage.removeItem("aiImageParams_dyn");
+    userStorage.setItem("aiImageParams_smea", JSON.stringify(checked));
+    if (!checked) userStorage.removeItem("aiImageParams_dyn");
     if (onParamChange) {
       setTimeout(() => {
         onParamChange('smea', checked);
@@ -443,15 +467,15 @@ const ParameterPanel = ({
 
     const checked = e.target.checked;
     setParams(prev => ({ ...prev, dyn: checked }));
-    localStorage.setItem("aiImageParams_dyn", JSON.stringify(checked));
+    userStorage.setItem("aiImageParams_dyn", JSON.stringify(checked));
     if (onParamChange) setTimeout(() => onParamChange('dyn', checked), 0);
   };
 
   const handleParamChange = (param, value) => {
     if (param === 'smea' || param === 'dyn') return;
     if (param === 'ucPreset' || param === 'ucPresetId') {
-      localStorage.removeItem('aiImageParams_ucPreset');
-      localStorage.removeItem('aiImageParams_ucPresetId');
+      userStorage.removeItem('aiImageParams_ucPreset');
+      userStorage.removeItem('aiImageParams_ucPresetId');
       return;
     }
     if (param === 'autoSmea' && isV4Model(params.model)) return;
@@ -479,15 +503,15 @@ const ParameterPanel = ({
     });
 
     try {
-      localStorage.setItem(`aiImageParams_${param}`, JSON.stringify(resolvedValue));
+      userStorage.setItem(`aiImageParams_${param}`, JSON.stringify(resolvedValue));
       if (enteringV5) {
         Object.entries(NOVELAI_V5_DEFAULT_PARAMS).forEach(([key, defaultValue]) => {
-          localStorage.setItem(`aiImageParams_${key}`, JSON.stringify(defaultValue));
+          userStorage.setItem(`aiImageParams_${key}`, JSON.stringify(defaultValue));
         });
       }
       if (shouldClearDirectorReference) {
         // 切离 4.5 时立即清除所有角色参考派生状态，避免隐藏数据继续影响请求与 Vibe。
-        NOVELAI_DIRECTOR_REFERENCE_PARAM_KEYS.forEach((key) => localStorage.removeItem(`aiImageParams_${key}`));
+        NOVELAI_DIRECTOR_REFERENCE_PARAM_KEYS.forEach((key) => userStorage.removeItem(`aiImageParams_${key}`));
       }
     } catch (e) {
       console.error(`保存参数到localStorage失败 (key: ${param}):`, e);
@@ -800,8 +824,10 @@ const ParameterPanel = ({
         reader.readAsDataURL(file);
       })));
 
+      checkVibeOwner();
       addVibeImagesToState(processedVibes.filter(Boolean));
     } catch (error) {
+      if (!isVibeOwner()) return;
       console.error('处理Vibe图像失败:', error);
       forwardPaintingPanelError(onError, error, {
         source: 'vibe-image-processing',
@@ -856,20 +882,14 @@ const ParameterPanel = ({
 
       const hash = await sha256(base64Data);
       const thumbnail = await createThumbnail(base64);
+      checkVibeOwner();
       const infoExtracted = 0.7; // 默认值
 
       const cachedVibe = await getVibeFromCache(hash, params.model, infoExtracted);
+      checkVibeOwner();
 
-      if (cachedVibe) {
-        const modelType = getV4ModelType(params.model);
-        const encodingDataForCurrentModel = cachedVibe.encodings?.[modelType];
-        let encodingInfo = null;
-        if (encodingDataForCurrentModel) {
-          const firstKey = Object.keys(encodingDataForCurrentModel)[0];
-          if (firstKey) {
-            encodingInfo = encodingDataForCurrentModel[firstKey];
-          }
-        }
+      const encodingInfo = selectVibeEncoding(cachedVibe, getV4ModelType(params.model), infoExtracted);
+      if (cachedVibe && encodingInfo) {
 
         const infoExtractedFromCache = encodingInfo?.params?.information_extracted ?? cachedVibe.importInfo?.information_extracted ?? 0.7;
         const imageB64 = cachedVibe.image ? (cachedVibe.image.startsWith('data:') ? cachedVibe.image : `data:image/png;base64,${cachedVibe.image}`) : null;
@@ -880,7 +900,7 @@ const ParameterPanel = ({
           thumbnail: cachedVibe.thumbnail || (imageB64 ? await createThumbnail(imageB64) : null),
           hash: cachedVibe.id || hash,
           informationExtracted: infoExtractedFromCache,
-          referenceStrength: cachedVibe.importInfo?.strength || 0.6,
+          referenceStrength: cachedVibe.importInfo?.strength ?? 0.6,
           isV4Vibe: true,
           status: 'converted',
           isReadOnly: !cachedVibe.image,
@@ -901,6 +921,7 @@ const ParameterPanel = ({
         });
       }
     }
+    checkVibeOwner();
     if (newVibes.length > 0) addVibeImagesToState(newVibes);
   };
 
@@ -913,6 +934,7 @@ const ParameterPanel = ({
       if (getEnabledItemCount(vibeImages) + getEnabledItemCount(newVibes) >= MAX_ACTIVE_VIBES) break;
       try {
         const text = await file.text();
+        checkVibeOwner();
         const data = JSON.parse(text);
         if (data.identifier === 'novelai-vibe-transfer') {
           const vibe = await processVibeFile(data, currentModelType, params.model);
@@ -925,6 +947,7 @@ const ParameterPanel = ({
           }
         }
       } catch (e) {
+        if (!isVibeOwner()) throw e;
         forwardPaintingPanelError(onError, e, {
           source: 'vibe-file-processing',
           messageKey: 'painting.workspace.errors.processFileFailed',
@@ -932,10 +955,12 @@ const ParameterPanel = ({
         setToast({ open: true, message: t('painting.workspace.errors.processFileFailed', { fileName: file.name }), severity: 'error' });
       }
     }
+    checkVibeOwner();
     if (newVibes.length > 0) addVibeImagesToState(newVibes);
   };
 
   const processVibeFile = async (data, currentModelType, currentModelName) => {
+    checkVibeOwner();
     const hasImage = !!data.image;
     const encodingDataForCurrentModel = data.encodings?.[currentModelType];
 
@@ -944,37 +969,22 @@ const ParameterPanel = ({
       return null;
     }
 
-    let encodingInfo = null;
-    if (encodingDataForCurrentModel) {
-      const firstKey = Object.keys(encodingDataForCurrentModel)[0];
-      if (firstKey) {
-        encodingInfo = encodingDataForCurrentModel[firstKey];
-      }
-    }
+    const encodingInfo = selectVibeEncoding(data, currentModelType);
 
     const isConverted = !!encodingInfo;
 
-    let hash, imageB64, thumbnail;
+    // 编码文件可以不附带原图，仍需稳定身份和持久缓存，才能再次导出。
+    let hash = data.id, imageB64, thumbnail;
     if (hasImage) {
       imageB64 = data.image.startsWith('data:') ? data.image : `data:image/png;base64,${data.image}`;
       thumbnail = data.thumbnail || await createThumbnail(imageB64);
       hash = data.id || await sha256(extractBase64FromDataUrl(imageB64));
 
-      if (data.encodings) {
-        for (const modelKey in data.encodings) {
-          const fullModelName = modelOptions.find(opt => getV4ModelType(opt.value) === modelKey)?.value;
-          if (fullModelName) {
-            const modelEncodingData = data.encodings[modelKey];
-            const firstSubKey = Object.keys(modelEncodingData)[0];
-            if (firstSubKey) {
-              const specificEncodingInfo = modelEncodingData[firstSubKey];
-              const infoExtracted = specificEncodingInfo?.params?.information_extracted ?? data.importInfo?.information_extracted ?? 0.7;
-              await addVibeToCache(data, hash, fullModelName, infoExtracted);
-            }
-          }
-        }
-      }
     }
+    if (!hash) hash = await sha256(JSON.stringify(data.encodings || {}));
+    await cacheImportedVibe({ data, hash, models: modelOptions, modelType: getV4ModelType,
+      write: addVibeToCache, checkOwner: checkVibeOwner });
+    checkVibeOwner();
 
     const infoExtractedFromFile = encodingInfo?.params?.information_extracted ?? data.importInfo?.information_extracted ?? 0.7;
 
@@ -984,7 +994,7 @@ const ParameterPanel = ({
       thumbnail: thumbnail || null,
       hash: hash,
       informationExtracted: infoExtractedFromFile,
-      referenceStrength: data.importInfo?.strength || 0.6,
+      referenceStrength: data.importInfo?.strength ?? 0.6,
       isV4Vibe: true,
       status: isConverted ? 'converted' : 'unconverted',
       isReadOnly: !hasImage,
@@ -1010,6 +1020,7 @@ const ParameterPanel = ({
       if (imageFiles.length > 0) await handleV4ImageUploadLogic(imageFiles);
       if (vibeFiles.length > 0) await handleV4VibeFileLogic(vibeFiles);
     } catch (error) {
+      if (!isVibeOwner()) return;
       console.error('处理 V4 Vibe 文件失败:', error);
       forwardPaintingPanelError(onError, error, {
         source: 'vibe-file-processing',
@@ -1021,44 +1032,50 @@ const ParameterPanel = ({
     }
   };
 
-  const handleVibeImageDelete = (index) => setVibeImages(prev => prev.filter((_, i) => i !== index));
+  const handleVibeImageDelete = (index) => {
+    vibeInformationUpdaterRef.current.forget(vibeImages[index]?.id);
+    setVibeImages(prev => prev.filter((_, i) => i !== index));
+  };
 
   const handleVibeInfoChange = async (index, value) => {
-    const updatedVibes = [...vibeImages];
-    const vibe = updatedVibes[index];
-    vibe.informationExtracted = value;
-
-    if (vibe.isV4Vibe && !vibe.isReadOnly) {
-      const cached = await getVibeFromCache(vibe.hash, params.model, value);
-      if (cached) {
-        const modelType = getV4ModelType(params.model);
-        const encodingData = cached.encodings[modelType];
-        const firstKey = Object.keys(encodingData)[0];
-        vibe.encoding = encodingData[firstKey].encoding;
-        vibe.status = 'converted';
-        vibe.encodingInfo = { name: cached.name };
-      } else {
-        vibe.encoding = null;
-        vibe.status = 'unconverted';
-      }
+    try {
+      await vibeInformationUpdaterRef.current.change(vibeImages[index], params.model, value);
+    } catch (error) {
+      if (!isVibeOwner()) return;
+      forwardPaintingPanelError(onError, error, {
+        source: 'vibe-cache-lookup', messageKey: 'painting.workspace.errors.vibeConversionFailed',
+      });
     }
-    setVibeImages(updatedVibes);
   };
 
   const handleVibeStrengthChange = (index, value) => setVibeImages(prev => { const n = [...prev]; n[index].referenceStrength = value; return n; });
 
   const handleVibeConvert = async (index) => {
-    const vibe = vibeImages[index];
-    if (!vibe || ['converting', 'converted'].includes(vibe.status)) {
+    const selectedVibe = vibeImages[index];
+    if (!selectedVibe || ['converting', 'converted'].includes(selectedVibe.status)) {
       return;
     }
-
-    setVibeImages(prev => prev.map((item, i) => i === index ? { ...item, status: 'converting' } : item));
+    // 编码期间仍允许编辑/删除；结果只更新同一条目和同一提取值，不依赖数组位置。
+    const vibe = { ...selectedVibe };
+    const model = params.model;
+    vibeInformationUpdaterRef.current.forget(vibe.id);
+    const updateEncoding = changes => setVibeImages(prev => isVibeOwner() && vibeModelRef.current === model
+      ? applyVibeEncodingResult(prev, vibe, changes) : prev);
+    updateEncoding({ status: 'converting' });
 
     try {
-      const model = params.model;
       const imageB64 = extractBase64FromDataUrl(vibe.image);
-      const res = await apiClient.encodeVibe(imageB64, vibe.informationExtracted, model);
+      // 缓存可能已提交而面板尚未保存；优先使用已有编码，避免无意义地恢复或重发。
+      const cached = vibe.status === 'interrupted' ? await getVibeFromCache(vibe.hash, model, vibe.informationExtracted) : null;
+      checkVibeOwner();
+      const cachedEncoding = selectVibeEncoding(cached, getV4ModelType(model), vibe.informationExtracted);
+      if (cachedEncoding) {
+        updateEncoding({ status: 'converted', encoding: cachedEncoding.encoding, encodingInfo: { name: cached.name } });
+        return;
+      }
+      const res = await apiClient.encodeVibe(imageB64, vibe.informationExtracted, model,
+        { resumeOnly: vibe.status === 'interrupted' && apiClient.isStudio() });
+      checkVibeOwner();
       const encoding = res.encoding;
       if (res.account_snapshot) {
         window.dispatchEvent(new CustomEvent('novelai:account-updated', {
@@ -1095,11 +1112,19 @@ const ParameterPanel = ({
       };
 
       await addVibeToCache(vibeJson, hash, model, vibe.informationExtracted);
-      setVibeImages(prev => prev.map((item, i) => i === index ? { ...item, status: 'converted', encoding: encoding, encodingInfo: { name } } : item));
+      checkVibeOwner();
+      if (res.studio_vibe_receipt) apiClient.studioVibes.acknowledge(res.studio_vibe_receipt);
+      updateEncoding({ status: 'converted', encoding, encodingInfo: { name } });
       setToast({ open: true, message: t('painting.workspace.notifications.vibeConverted'), severity: 'success' });
     } catch (error) {
+      if (!isVibeOwner()) return;
       console.error("Vibe conversion failed:", error);
-      setVibeImages(prev => prev.map((item, i) => i === index ? { ...item, status: 'error' } : item));
+      if (error.code === 'STUDIO_TOOL_RECORD_MISSING') {
+        updateEncoding({ status: 'error' });
+        setToast({ open: true, message: t('painting.workspace.parameters.vibeRecoveryMissing'), severity: 'warning' });
+        return;
+      }
+      updateEncoding({ status: vibe.status === 'interrupted' ? 'interrupted' : 'error' });
       const reported = forwardPaintingPanelError(onError, error, {
         source: 'vibe-encoding',
         messageKey: 'painting.workspace.errors.vibeConversionFailed',
@@ -1119,6 +1144,7 @@ const ParameterPanel = ({
 
     try {
       const fullVibeData = await getVibeFromCache(vibeItem.hash, params.model, vibeItem.informationExtracted);
+      checkVibeOwner();
       if (!fullVibeData) {
         throw Object.assign(new Error('VIBE_DATA_NOT_FOUND'), { code: 'VIBE_DATA_NOT_FOUND' });
       }
@@ -1127,6 +1153,7 @@ const ParameterPanel = ({
       saveAs(blob, `${fullVibeData.name || vibeItem.hash}.naiv4vibe`);
 
     } catch (error) {
+      if (!isVibeOwner()) return;
       console.error('下载Vibe文件失败:', error);
       forwardPaintingPanelError(onError, error, {
         source: 'vibe-download',
@@ -1147,19 +1174,15 @@ const ParameterPanel = ({
       const vibeDataList = await Promise.all(
         convertedVibes.map(v => getVibeFromCache(v.hash, params.model, v.informationExtracted))
       );
+      checkVibeOwner();
 
-      const validVibeData = vibeDataList.filter(Boolean);
-
-      const bundle = {
-        identifier: "novelai-vibe-transfer-bundle",
-        version: 1,
-        vibes: validVibeData,
-      };
+      const bundle = buildVibeBundle(vibeDataList);
 
       const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: 'application/json;charset=utf-8' });
       saveAs(blob, 'vibes.naiv4vibebundle');
 
     } catch (error) {
+      if (!isVibeOwner()) return;
       console.error('打包下载Vibe失败:', error);
       forwardPaintingPanelError(onError, error, {
         source: 'vibe-bundle-download',
@@ -1172,41 +1195,16 @@ const ParameterPanel = ({
   // [修改] ZIP 下载函数，从数据库读取所有数据
   const handleDownloadZip = async () => {
     try {
-      const allVibesFromDB = await getAllVibesFromCache();
-      if (!allVibesFromDB || allVibesFromDB.length === 0) {
+      const downloaded = await downloadVibeZip({ readAll: getAllVibesFromCache,
+        createZip: () => new JSZip(), save: saveAs, checkOwner: checkVibeOwner });
+      checkVibeOwner();
+      if (!downloaded) {
         setToast({ open: true, message: t('painting.workspace.errors.noVibeDataForZip'), severity: 'info' });
         return;
       }
 
-      const zip = new JSZip();
-
-      const vibesByHash = allVibesFromDB.reduce((acc, vibe) => {
-        const hash = vibe.id;
-        if (!acc[hash]) acc[hash] = [];
-        acc[hash].push(vibe);
-        return acc;
-      }, {});
-
-      for (const hash in vibesByHash) {
-        const vibes = vibesByHash[hash];
-        if (vibes.length === 1) {
-          const vibeData = vibes[0];
-          const fileName = `${vibeData.name || vibeData.id}.naiv4vibe`;
-          zip.file(fileName, JSON.stringify(vibeData, null, 2));
-        } else {
-          for (const vibeData of vibes) {
-            const baseName = vibeData.name || vibeData.id;
-            const ie = (vibeData.importInfo?.information_extracted?.toFixed(1)) || 'unknown';
-            const fileName = `${baseName}_ie${ie}.naiv4vibe`;
-            zip.file(fileName, JSON.stringify(vibeData, null, 2));
-          }
-        }
-      }
-
-      const content = await zip.generateAsync({ type: 'blob' });
-      saveAs(content, 'vibes_database.zip');
-
     } catch (error) {
+      if (!isVibeOwner()) return;
       console.error('ZIP下载Vibe失败:', error);
       forwardPaintingPanelError(onError, error, {
         source: 'vibe-zip-download',

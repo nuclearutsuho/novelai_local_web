@@ -1,3 +1,4 @@
+import { userStorage } from '@/utils/userStorage.mjs';
 import React, { useState, useEffect, useRef } from 'react';
 import {
   Paper,
@@ -118,7 +119,7 @@ const getInitialPageColors = (pages) => {
       pageIcons[page.id] = <LabelIcon />;
     }
     // 从 localStorage 或 page.js 的 props 中获取颜色，默认为新的青色
-    initialColors[page.id] = localStorage.getItem(getPageColorStorageKey(page.id)) || page.color || '#00796B';
+    initialColors[page.id] = userStorage.getItem(getPageColorStorageKey(page.id)) || page.color || '#00796B';
   });
   return initialColors;
 };
@@ -142,53 +143,53 @@ const SettingsPage = ({ pages = [] }) => { // 接收来自 page.js 的 pages 数
   
   // 获取当前应用的主题模式
   const [mode, setMode] = useState(() => {
-    return localStorage.getItem('themeMode') || 'dark';
+    return userStorage.getItem('themeMode') || 'dark';
   });
   
   // 状态变量
   const [primaryColors, setPrimaryColors] = useState({
-    light: localStorage.getItem('themePrimaryLight') || '#00796B', // 更新默认色
-    dark: localStorage.getItem('themePrimaryDark') || '#4DB6AC', // 更新默认色
+    light: userStorage.getItem('themePrimaryLight') || '#00796B', // 更新默认色
+    dark: userStorage.getItem('themePrimaryDark') || '#4DB6AC', // 更新默认色
   });
   
   // 使用新的默认背景
   const [customBackgroundColors, setCustomBackgroundColors] = useState({
     light: {
-      default: localStorage.getItem('themeBackgroundDefaultLight') || backgroundPresets.light.cool.default,
-      paper: localStorage.getItem('themeBackgroundPaperLight') || backgroundPresets.light.cool.paper,
-      drawer: localStorage.getItem('themeBackgroundDrawerLight') || backgroundPresets.light.cool.drawer, 
+      default: userStorage.getItem('themeBackgroundDefaultLight') || backgroundPresets.light.cool.default,
+      paper: userStorage.getItem('themeBackgroundPaperLight') || backgroundPresets.light.cool.paper,
+      drawer: userStorage.getItem('themeBackgroundDrawerLight') || backgroundPresets.light.cool.drawer,
     },
     dark: {
-      default: localStorage.getItem('themeBackgroundDefaultDark') || backgroundPresets.dark.blue.default,
-      paper: localStorage.getItem('themeBackgroundPaperDark') || backgroundPresets.dark.blue.paper,
-      drawer: localStorage.getItem('themeBackgroundDrawerDark') || backgroundPresets.dark.blue.drawer, 
+      default: userStorage.getItem('themeBackgroundDefaultDark') || backgroundPresets.dark.blue.default,
+      paper: userStorage.getItem('themeBackgroundPaperDark') || backgroundPresets.dark.blue.paper,
+      drawer: userStorage.getItem('themeBackgroundDrawerDark') || backgroundPresets.dark.blue.drawer,
     },
   });
   
   const [customColors, setCustomColors] = useState({
-    light: localStorage.getItem('themePrimaryLight') || '#00796B', // 更新默认色
-    dark: localStorage.getItem('themePrimaryDark') || '#4DB6AC', // 更新默认色
+    light: userStorage.getItem('themePrimaryLight') || '#00796B', // 更新默认色
+    dark: userStorage.getItem('themePrimaryDark') || '#4DB6AC', // 更新默认色
   });
   
   // 动态初始化 pageColors
   const [pageColors, setPageColors] = useState(() => getInitialPageColors(pages));
 
   const [animationEnabled, setAnimationEnabled] = useState(
-    localStorage.getItem('animationEnabled') !== 'false'
+    userStorage.getItem('animationEnabled') !== 'false'
   );
   const [animationSpeed, setAnimationSpeed] = useState(
-    parseInt(localStorage.getItem('animationSpeed') || '300')
+    parseInt(userStorage.getItem('animationSpeed') || '300')
   );
   
   // 图像下载设置状态，自动保存和手动下载共用同一套命名规则。
   const [autoSaveEnabled, setAutoSaveEnabled] = useState(
-    localStorage.getItem('autoSaveEnabled') === 'true'
+    userStorage.getItem('autoSaveEnabled') === 'true'
   );
   const [fileNamePrefix, setFileNamePrefix] = useState(
-    localStorage.getItem('fileNamePrefix') || 'AI_Image'
+    userStorage.getItem('fileNamePrefix') || 'AI_Image'
   );
   const [namingMethod, setNamingMethod] = useState(
-    localStorage.getItem('namingMethod') || 'seed'
+    userStorage.getItem('namingMethod') || 'seed'
   );
   
   // 消息通知
@@ -208,35 +209,35 @@ const SettingsPage = ({ pages = [] }) => { // 接收来自 page.js 的 pages 数
 
     try {
       // 保存主题设置
-      localStorage.setItem('themePrimaryLight', customColors.light);
-      localStorage.setItem('themePrimaryDark', customColors.dark);
-      localStorage.setItem('themeMode', mode);
+      userStorage.setItem('themePrimaryLight', customColors.light);
+      userStorage.setItem('themePrimaryDark', customColors.dark);
+      userStorage.setItem('themeMode', mode);
       
       // 保存背景色设置
-      localStorage.setItem('themeBackgroundDefaultLight', customBackgroundColors.light.default);
-      localStorage.setItem('themeBackgroundPaperLight', customBackgroundColors.light.paper);
-      localStorage.setItem('themeBackgroundDrawerLight', customBackgroundColors.light.drawer);
-      localStorage.setItem('themeBackgroundDefaultDark', customBackgroundColors.dark.default);
-      localStorage.setItem('themeBackgroundPaperDark', customBackgroundColors.dark.paper);
-      localStorage.setItem('themeBackgroundDrawerDark', customBackgroundColors.dark.drawer);
+      userStorage.setItem('themeBackgroundDefaultLight', customBackgroundColors.light.default);
+      userStorage.setItem('themeBackgroundPaperLight', customBackgroundColors.light.paper);
+      userStorage.setItem('themeBackgroundDrawerLight', customBackgroundColors.light.drawer);
+      userStorage.setItem('themeBackgroundDefaultDark', customBackgroundColors.dark.default);
+      userStorage.setItem('themeBackgroundPaperDark', customBackgroundColors.dark.paper);
+      userStorage.setItem('themeBackgroundDrawerDark', customBackgroundColors.dark.drawer);
       
       // 保存页面颜色 (动态)
       Object.entries(pageColors).forEach(([page, color]) => {
-        localStorage.setItem(getPageColorStorageKey(page), color);
+        userStorage.setItem(getPageColorStorageKey(page), color);
       });
       
       // 保存界面设置
-      localStorage.setItem('animationEnabled', animationEnabled.toString());
-      localStorage.setItem('animationSpeed', animationSpeed.toString());
+      userStorage.setItem('animationEnabled', animationEnabled.toString());
+      userStorage.setItem('animationSpeed', animationSpeed.toString());
       
       // 保存图像下载设置，并清理旧版命名字段，避免隐藏设置继续影响文件名。
-      localStorage.setItem('autoSaveEnabled', autoSaveEnabled.toString());
-      localStorage.setItem('fileNamePrefix', fileNamePrefix);
-      localStorage.setItem('namingMethod', namingMethod);
-      localStorage.setItem('fileNameSuffix', '');
-      localStorage.setItem('randomStringLength', '8');
-      localStorage.setItem('includeDateInName', 'false');
-      localStorage.setItem('dateFormat', 'yyyyMMdd_HHmmss');
+      userStorage.setItem('autoSaveEnabled', autoSaveEnabled.toString());
+      userStorage.setItem('fileNamePrefix', fileNamePrefix);
+      userStorage.setItem('namingMethod', namingMethod);
+      userStorage.setItem('fileNameSuffix', '');
+      userStorage.setItem('randomStringLength', '8');
+      userStorage.setItem('includeDateInName', 'false');
+      userStorage.setItem('dateFormat', 'yyyyMMdd_HHmmss');
 
       await apiClient.saveLocalSettings({
         themeMode: mode,
@@ -363,13 +364,13 @@ const SettingsPage = ({ pages = [] }) => { // 接收来自 page.js 的 pages 数
   
   // 当组件挂载时，从localStorage读取设置
   useEffect(() => {
-    const themeMode = localStorage.getItem('themeMode');
+    const themeMode = userStorage.getItem('themeMode');
     if (themeMode) {
       setMode(themeMode);
     }
     
-    const themePrimaryLight = localStorage.getItem('themePrimaryLight');
-    const themePrimaryDark = localStorage.getItem('themePrimaryDark');
+    const themePrimaryLight = userStorage.getItem('themePrimaryLight');
+    const themePrimaryDark = userStorage.getItem('themePrimaryDark');
     
     const colors = {
       light: themePrimaryLight || '#00796B', // 更新
@@ -379,12 +380,12 @@ const SettingsPage = ({ pages = [] }) => { // 接收来自 page.js 的 pages 数
     setCustomColors(colors);
     
     // 加载背景色设置
-    const backgroundDefaultLight = localStorage.getItem('themeBackgroundDefaultLight');
-    const backgroundPaperLight = localStorage.getItem('themeBackgroundPaperLight');
-    const backgroundDrawerLight = localStorage.getItem('themeBackgroundDrawerLight');
-    const backgroundDefaultDark = localStorage.getItem('themeBackgroundDefaultDark');
-    const backgroundPaperDark = localStorage.getItem('themeBackgroundPaperDark');
-    const backgroundDrawerDark = localStorage.getItem('themeBackgroundDrawerDark');
+    const backgroundDefaultLight = userStorage.getItem('themeBackgroundDefaultLight');
+    const backgroundPaperLight = userStorage.getItem('themeBackgroundPaperLight');
+    const backgroundDrawerLight = userStorage.getItem('themeBackgroundDrawerLight');
+    const backgroundDefaultDark = userStorage.getItem('themeBackgroundDefaultDark');
+    const backgroundPaperDark = userStorage.getItem('themeBackgroundPaperDark');
+    const backgroundDrawerDark = userStorage.getItem('themeBackgroundDrawerDark');
     
     setCustomBackgroundColors({
       light: {
@@ -403,13 +404,13 @@ const SettingsPage = ({ pages = [] }) => { // 接收来自 page.js 的 pages 数
     const storedPageColors = getInitialPageColors(pages);
     setPageColors(storedPageColors);
     
-    setAnimationEnabled(localStorage.getItem('animationEnabled') !== 'false');
-    setAnimationSpeed(parseInt(localStorage.getItem('animationSpeed') || '300'));
+    setAnimationEnabled(userStorage.getItem('animationEnabled') !== 'false');
+    setAnimationSpeed(parseInt(userStorage.getItem('animationSpeed') || '300'));
     
     // 读取图像设置
-    setAutoSaveEnabled(localStorage.getItem('autoSaveEnabled') === 'true');
-    setFileNamePrefix(localStorage.getItem('fileNamePrefix') || 'AI_Image');
-    setNamingMethod(localStorage.getItem('namingMethod') || 'seed');
+    setAutoSaveEnabled(userStorage.getItem('autoSaveEnabled') === 'true');
+    setFileNamePrefix(userStorage.getItem('fileNamePrefix') || 'AI_Image');
+    setNamingMethod(userStorage.getItem('namingMethod') || 'seed');
 
     if (remoteSettingsLoaded.current) return undefined;
     remoteSettingsLoaded.current = true;
@@ -438,31 +439,31 @@ const SettingsPage = ({ pages = [] }) => { // 接收来自 page.js 的 pages 数
         },
       };
       const remotePageColors = { ...storedPageColors, ...(settings.pageColors || {}) };
-      const remoteAnimationEnabled = settings.animationEnabled ?? (localStorage.getItem('animationEnabled') !== 'false');
+      const remoteAnimationEnabled = settings.animationEnabled ?? (userStorage.getItem('animationEnabled') !== 'false');
       const remoteAnimationSpeed = Number.isFinite(settings.animationSpeed)
         ? settings.animationSpeed
-        : parseInt(localStorage.getItem('animationSpeed') || '300');
-      const remoteAutoSaveEnabled = settings.autoSaveEnabled ?? (localStorage.getItem('autoSaveEnabled') === 'true');
-      const remoteFileNamePrefix = settings.fileNamePrefix || localStorage.getItem('fileNamePrefix') || 'AI_Image';
-      const remoteNamingMethod = settings.namingMethod || localStorage.getItem('namingMethod') || 'seed';
+        : parseInt(userStorage.getItem('animationSpeed') || '300');
+      const remoteAutoSaveEnabled = settings.autoSaveEnabled ?? (userStorage.getItem('autoSaveEnabled') === 'true');
+      const remoteFileNamePrefix = settings.fileNamePrefix || userStorage.getItem('fileNamePrefix') || 'AI_Image';
+      const remoteNamingMethod = settings.namingMethod || userStorage.getItem('namingMethod') || 'seed';
 
-      localStorage.setItem('themeMode', remoteMode);
-      localStorage.setItem('themePrimaryLight', remotePrimaryColors.light);
-      localStorage.setItem('themePrimaryDark', remotePrimaryColors.dark);
-      localStorage.setItem('themeBackgroundDefaultLight', remoteBackgroundColors.light.default);
-      localStorage.setItem('themeBackgroundPaperLight', remoteBackgroundColors.light.paper);
-      localStorage.setItem('themeBackgroundDrawerLight', remoteBackgroundColors.light.drawer);
-      localStorage.setItem('themeBackgroundDefaultDark', remoteBackgroundColors.dark.default);
-      localStorage.setItem('themeBackgroundPaperDark', remoteBackgroundColors.dark.paper);
-      localStorage.setItem('themeBackgroundDrawerDark', remoteBackgroundColors.dark.drawer);
+      userStorage.setItem('themeMode', remoteMode);
+      userStorage.setItem('themePrimaryLight', remotePrimaryColors.light);
+      userStorage.setItem('themePrimaryDark', remotePrimaryColors.dark);
+      userStorage.setItem('themeBackgroundDefaultLight', remoteBackgroundColors.light.default);
+      userStorage.setItem('themeBackgroundPaperLight', remoteBackgroundColors.light.paper);
+      userStorage.setItem('themeBackgroundDrawerLight', remoteBackgroundColors.light.drawer);
+      userStorage.setItem('themeBackgroundDefaultDark', remoteBackgroundColors.dark.default);
+      userStorage.setItem('themeBackgroundPaperDark', remoteBackgroundColors.dark.paper);
+      userStorage.setItem('themeBackgroundDrawerDark', remoteBackgroundColors.dark.drawer);
       Object.entries(remotePageColors).forEach(([page, color]) => {
-        localStorage.setItem(getPageColorStorageKey(page), color);
+        userStorage.setItem(getPageColorStorageKey(page), color);
       });
-      localStorage.setItem('animationEnabled', String(remoteAnimationEnabled));
-      localStorage.setItem('animationSpeed', String(remoteAnimationSpeed));
-      localStorage.setItem('autoSaveEnabled', String(remoteAutoSaveEnabled));
-      localStorage.setItem('fileNamePrefix', remoteFileNamePrefix);
-      localStorage.setItem('namingMethod', remoteNamingMethod);
+      userStorage.setItem('animationEnabled', String(remoteAnimationEnabled));
+      userStorage.setItem('animationSpeed', String(remoteAnimationSpeed));
+      userStorage.setItem('autoSaveEnabled', String(remoteAutoSaveEnabled));
+      userStorage.setItem('fileNamePrefix', remoteFileNamePrefix);
+      userStorage.setItem('namingMethod', remoteNamingMethod);
 
       setMode(remoteMode);
       setPrimaryColors(remotePrimaryColors);

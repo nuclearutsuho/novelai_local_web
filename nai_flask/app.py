@@ -186,6 +186,11 @@ def _request_json() -> dict[str, Any]:
     return payload
 
 
+def _request_local_store() -> LocalJsonStore:
+    """应用路由可提供当前用户的存储，原独立会话仍使用原数据目录。"""
+    return getattr(g, "scoped_local_store", None) or current_app.extensions["local_store"]
+
+
 def _origin_is_allowed(origin: str, allowed_origins: set[str]) -> bool:
     """按完整 scheme、host 与 port 比较浏览器 Origin。"""
 
@@ -1656,7 +1661,7 @@ def create_app(
     def get_settings() -> Response:
         """读取本地设置对象。"""
 
-        settings = app.extensions["local_store"].read("settings")
+        settings = _request_local_store().read("settings")
         if not isinstance(settings, dict):
             raise LocalStoreError("settings has an invalid shape")
         _log_local_json("read", "settings", settings)
@@ -1670,7 +1675,7 @@ def create_app(
         settings = _request_json().get("settings")
         if not isinstance(settings, dict):
             raise ApiError("settings must be a JSON object.")
-        saved = app.extensions["local_store"].write("settings", settings)
+        saved = _request_local_store().write("settings", settings)
         _log_local_json("write", "settings", saved)
         return jsonify({"settings": saved})
 
@@ -1679,7 +1684,7 @@ def create_app(
     def get_random_prompts() -> Response:
         """读取本地随机提示词列表。"""
 
-        prompts = app.extensions["local_store"].read("random-prompts")
+        prompts = _request_local_store().read("random-prompts")
         if not isinstance(prompts, dict):
             raise LocalStoreError("random-prompts has an invalid shape")
         _log_local_json("read", "random-prompts", prompts)
@@ -1693,7 +1698,7 @@ def create_app(
         prompts = _request_json().get("random_prompts")
         if not isinstance(prompts, dict):
             raise ApiError("random_prompts must be a JSON object.")
-        saved = app.extensions["local_store"].write("random-prompts", prompts)
+        saved = _request_local_store().write("random-prompts", prompts)
         _log_local_json("write", "random-prompts", saved)
         return jsonify({"random_prompts": saved})
 
@@ -1702,7 +1707,7 @@ def create_app(
     def get_notes() -> Response:
         """读取全部本地笔记。"""
 
-        notes = app.extensions["local_store"].read("notes")
+        notes = _request_local_store().read("notes")
         if not isinstance(notes, list):
             raise LocalStoreError("notes has an invalid shape")
         _log_local_json("read", "notes", notes)
@@ -1727,7 +1732,7 @@ def create_app(
             notes.append(note)
             return notes
 
-        saved_notes = app.extensions["local_store"].mutate("notes", append_note)
+        saved_notes = _request_local_store().mutate("notes", append_note)
         _log_local_json("create", "notes", saved_notes)
         return jsonify({"note": note}), 201
 
@@ -1748,7 +1753,7 @@ def create_app(
                 raise ApiError("Imported note ids must be unique.", 409, "NOTE_ALREADY_EXISTS")
             if len(set(note_titles)) != len(note_titles):
                 raise ApiError("Imported note titles must be unique.", 409, "NOTE_TITLE_EXISTS")
-            saved_notes = app.extensions["local_store"].write("notes", prepared_notes)
+            saved_notes = _request_local_store().write("notes", prepared_notes)
             _log_local_json("import", "notes", saved_notes)
             return jsonify({"notes": saved_notes})
 
@@ -1797,7 +1802,7 @@ def create_app(
             updated["note"] = saved_note
             return notes
 
-        saved_notes = app.extensions["local_store"].mutate("notes", replace_note)
+        saved_notes = _request_local_store().mutate("notes", replace_note)
         _log_local_json("update", "notes", saved_notes)
         return jsonify({"note": updated["note"]})
 
@@ -1835,7 +1840,7 @@ def create_app(
                 raise ApiError("The note selector is ambiguous.", 409, "NOTE_AMBIGUOUS")
             return notes[:positions[0]] + notes[positions[0] + 1:]
 
-        saved_notes = app.extensions["local_store"].mutate("notes", remove_note)
+        saved_notes = _request_local_store().mutate("notes", remove_note)
         _log_local_json("delete", "notes", saved_notes)
         return jsonify({"deleted": True})
 

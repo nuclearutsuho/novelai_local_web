@@ -1,3 +1,4 @@
+import { currentStorageScope } from '@/utils/userStorage.mjs';
 // utils/vibeDB.js
 
 const DB_NAME = 'AIPaintingVibeDB';
@@ -22,7 +23,7 @@ function openDatabase() {
       reject(error);
       return;
     }
-    const request = indexedDB.open(DB_NAME, DB_VERSION);
+    const request = indexedDB.open(currentStorageScope() + DB_NAME, DB_VERSION);
 
     request.onupgradeneeded = (event) => {
       const db = event.target.result;
@@ -60,6 +61,29 @@ const getCacheKey = (hash, model, information_extracted) => {
     return `${hash}-${model}-${information_extracted.toFixed(1)}`;
 }
 
+async function runVibeTransaction(storeName, mode, operation, selectResult = value => value) {
+  const owner = currentStorageScope();
+  const db = await openDatabase();
+  try {
+    if (currentStorageScope() !== owner) throw new Error('STUDIO_IDENTITY_CHANGED');
+    return await new Promise((resolve, reject) => {
+      const transaction = db.transaction([storeName], mode);
+      let request;
+      // 单个请求成功不等于事务提交；只有 complete 才允许确认领取或更新界面。
+      transaction.oncomplete = () => {
+        if (currentStorageScope() !== owner) reject(new Error('STUDIO_IDENTITY_CHANGED'));
+        else resolve(selectResult(request.result));
+      };
+      transaction.onabort = () => reject(transaction.error || request?.error || new Error('VIBE_DB_TRANSACTION_ABORTED'));
+      transaction.onerror = () => reject(transaction.error || request?.error || new Error('VIBE_DB_TRANSACTION_FAILED'));
+      try { request = operation(transaction.objectStore(storeName)); }
+      catch (error) { transaction.abort(); reject(error); }
+    });
+  } finally {
+    db.close();
+  }
+}
+
 /**
  * 将 Vibe 数据添加到缓存中。
  * @param {object} vibeData - 要缓存的完整 Vibe JSON 对象。
@@ -69,15 +93,9 @@ const getCacheKey = (hash, model, information_extracted) => {
  * @returns {Promise<void>} 操作完成时解析的 Promise。
  */
 export const addVibeToCache = async (vibeData, hash, model, information_extracted) => {
-    const db = await openDatabase();
-    return new Promise((resolve, reject) => {
-        const transaction = db.transaction([STORE_NAME], 'readwrite');
-        const store = transaction.objectStore(STORE_NAME);
-        const dataToStore = { ...vibeData, cacheKey: getCacheKey(hash, model, information_extracted) };
-        const request = store.put(dataToStore);
-        request.onsuccess = () => resolve();
-        request.onerror = (event) => reject(event.target.error);
-    });
+    return runVibeTransaction(STORE_NAME, 'readwrite', store => store.put({
+        ...vibeData, cacheKey: getCacheKey(hash, model, information_extracted),
+    }), () => undefined);
 };
 
 /**
@@ -88,14 +106,7 @@ export const addVibeToCache = async (vibeData, hash, model, information_extracte
  * @returns {Promise<object|undefined>} 返回找到的 Vibe 数据对象，如果未找到则返回 undefined。
  */
 export const getVibeFromCache = async (hash, model, information_extracted) => {
-    const db = await openDatabase();
-    return new Promise((resolve, reject) => {
-        const transaction = db.transaction([STORE_NAME], 'readonly');
-        const store = transaction.objectStore(STORE_NAME);
-        const request = store.get(getCacheKey(hash, model, information_extracted));
-        request.onsuccess = () => resolve(request.result);
-        request.onerror = (event) => reject(event.target.error);
-    });
+    return runVibeTransaction(STORE_NAME, 'readonly', store => store.get(getCacheKey(hash, model, information_extracted)));
 };
 
 /**
@@ -103,52 +114,21 @@ export const getVibeFromCache = async (hash, model, information_extracted) => {
  * @returns {Promise<Array<object>>} 返回包含所有 Vibe 数据对象的数组。
  */
 export const getAllVibesFromCache = async () => {
-    const db = await openDatabase();
-    return new Promise((resolve, reject) => {
-        const transaction = db.transaction([STORE_NAME], 'readonly');
-        const store = transaction.objectStore(STORE_NAME);
-        const request = store.getAll();
-        request.onsuccess = () => resolve(request.result || []);
-        request.onerror = (event) => reject(event.target.error);
-    });
+    return runVibeTransaction(STORE_NAME, 'readonly', store => store.getAll(), result => result || []);
 };
 
 export const saveVibePanelState = async (vibeImages) => {
-  const db = await openDatabase();
-  return new Promise((resolve, reject) => {
-    const transaction = db.transaction([PANEL_STATE_STORE_NAME], 'readwrite');
-    const store = transaction.objectStore(PANEL_STATE_STORE_NAME);
-    const request = store.put({
+  return runVibeTransaction(PANEL_STATE_STORE_NAME, 'readwrite', store => store.put({
       key: PANEL_STATE_KEY,
       vibeImages,
       updatedAt: Date.now(),
-    });
-
-    request.onsuccess = () => resolve();
-    request.onerror = (event) => reject(event.target.error);
-  });
+    }), () => undefined);
 };
 
 export const getVibePanelState = async () => {
-  const db = await openDatabase();
-  return new Promise((resolve, reject) => {
-    const transaction = db.transaction([PANEL_STATE_STORE_NAME], 'readonly');
-    const store = transaction.objectStore(PANEL_STATE_STORE_NAME);
-    const request = store.get(PANEL_STATE_KEY);
-
-    request.onsuccess = () => resolve(request.result?.vibeImages || []);
-    request.onerror = (event) => reject(event.target.error);
-  });
+  return runVibeTransaction(PANEL_STATE_STORE_NAME, 'readonly', store => store.get(PANEL_STATE_KEY), result => result?.vibeImages || []);
 };
 
 export const clearVibePanelState = async () => {
-  const db = await openDatabase();
-  return new Promise((resolve, reject) => {
-    const transaction = db.transaction([PANEL_STATE_STORE_NAME], 'readwrite');
-    const store = transaction.objectStore(PANEL_STATE_STORE_NAME);
-    const request = store.delete(PANEL_STATE_KEY);
-
-    request.onsuccess = () => resolve();
-    request.onerror = (event) => reject(event.target.error);
-  });
+  return runVibeTransaction(PANEL_STATE_STORE_NAME, 'readwrite', store => store.delete(PANEL_STATE_KEY), () => undefined);
 };

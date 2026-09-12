@@ -1,5 +1,8 @@
-﻿// AIPaintingPage.js
+// AIPaintingPage.js
 "use client";
+import { currentStorageScope, userStorage } from '@/utils/userStorage.mjs';
+import { restoreVibePanel } from './utils/vibePanelRecovery.mjs';
+import { applyOwnedPreview, loadOwnedImageSource } from '@/utils/imageOperationLifecycle.mjs';
 
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import {
@@ -76,6 +79,7 @@ import {
   estimateNovelAIGenerationCost,
   isDisplayableNovelAICost,
 } from './utils/novelAICost.mjs';
+import { describeStudioUsage } from './utils/studioUsage.mjs';
 import { loadModelPromptCache, persistModelPromptCache } from './utils/promptCache';
 import { useI18n } from '@/i18n/I18nProvider';
 import {
@@ -314,6 +318,7 @@ const AIPaintingPageContent = ({ userId, accountSnapshot = null }) => {
     generatedItems,
     generate,
     generatePreview,
+    registerWorkspaceRecovery,
     selectItem,
     deleteItem,
     appendGeneratedItem,
@@ -334,7 +339,10 @@ const AIPaintingPageContent = ({ userId, accountSnapshot = null }) => {
   const fileInputRef = useRef(null);
   const vibeFileInputRef = useRef(null);
   const upscaleInFlightRef = useRef(false);
+  const pageActiveRef = useRef(false);
+  useEffect(() => { pageActiveRef.current = true; return () => { pageActiveRef.current = false; }; }, []);
   const [inpaintPreviewBatch, setInpaintPreviewBatch] = useState({ active: false, current: 0, total: 0 });
+  const inpaintPreviewRunningRef = useRef(false);
   const [characterTabsFromNote, setCharacterTabsFromNote] = useState(null);
   const [characterTabsForPromptTokens, setCharacterTabsForPromptTokens] = useState([]);
   const [imageSettings, setImageSettings] = useState(getImageSettings());
@@ -365,7 +373,7 @@ const AIPaintingPageContent = ({ userId, accountSnapshot = null }) => {
       // 从缓存中读取各参数值
       const cachedParams = {};
       Object.keys(defaults).forEach(key => {
-        const cached = localStorage.getItem('aiImageParams_' + key);
+        const cached = userStorage.getItem('aiImageParams_' + key);
         if (cached !== null) {
           try {
             cachedParams[key] = JSON.parse(cached);
@@ -380,7 +388,7 @@ const AIPaintingPageContent = ({ userId, accountSnapshot = null }) => {
       if (normalizedModel !== mergedParams.model) {
         // 废弃模型的旧缓存必须在页面启动时回落，不能继续形成隐藏生成请求。
         mergedParams.model = normalizedModel;
-        localStorage.setItem('aiImageParams_model', JSON.stringify(normalizedModel));
+        userStorage.setItem('aiImageParams_model', JSON.stringify(normalizedModel));
       }
 
       return mergedParams;
@@ -410,6 +418,40 @@ const AIPaintingPageContent = ({ userId, accountSnapshot = null }) => {
     window.addEventListener('novelai:account-updated', handleAccountUpdate);
     return () => window.removeEventListener('novelai:account-updated', handleAccountUpdate);
   }, []);
+  useEffect(() => {
+    if (!apiClient.isStudio()) return;
+    const owner = currentStorageScope();
+    let active = true;
+    let timer;
+    let sequence = 0;
+    const refresh = () => {
+      window.clearTimeout(timer);
+      const requestSequence = ++sequence;
+      // 合并一次任务内的状态通知；返回后复核身份，旧响应不能覆盖新用户额度。
+      timer = window.setTimeout(async () => {
+        try {
+          const result = await apiClient.getAccount();
+          if (active && owner === currentStorageScope() && requestSequence === sequence) {
+            window.dispatchEvent(new CustomEvent('novelai:account-updated', { detail: result.account_snapshot }));
+          }
+        } catch {
+          if (active && owner === currentStorageScope() && requestSequence === sequence) {
+            setLiveAccountSnapshot(previous => previous ? { ...previous, stale: true } : previous);
+          }
+        }
+      }, 250);
+    };
+    window.addEventListener('studio:task-changed', refresh);
+    window.addEventListener('studio:tool-ended', refresh);
+    window.addEventListener('focus', refresh);
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+      window.removeEventListener('studio:task-changed', refresh);
+      window.removeEventListener('studio:tool-ended', refresh);
+      window.removeEventListener('focus', refresh);
+    };
+  }, [userId]);
   const [promptsByModel, setPromptsByModel] = useState(() => (
     loadModelPromptCache(generationParams.model)
   ));
@@ -478,6 +520,17 @@ const AIPaintingPageContent = ({ userId, accountSnapshot = null }) => {
   const [imageToImageCostParameters, setImageToImageCostParameters] = useState(null);
   const [inpaintCostParameters, setInpaintCostParameters] = useState(null);
   const [leftPanelMode, setLeftPanelMode] = useState('generation');
+  useEffect(() => registerWorkspaceRecovery(async (item, snapshot, checkOwner) => {
+    checkOwner();
+    setLeftPanelMode('inpaint');
+    const workspace = inpaintWorkspaceRef.current;
+    if (!workspace) throw new Error('STUDIO_WORKSPACE_NOT_MOUNTED');
+    await workspace.restoreStudioWorkspace(snapshot, checkOwner);
+    checkOwner();
+    if (!await workspace.applyGeneratedPatch(item, checkOwner)) throw new Error('STUDIO_WORKSPACE_RECOVERY_FAILED');
+    checkOwner();
+    revokeObjectUrl(item.objectUrlToRevoke);
+  }), [registerWorkspaceRecovery]);
   const isV5Model = isNovelAIV5Model(generationParams.model);
 
   // 添加通知状态
@@ -505,10 +558,7 @@ const AIPaintingPageContent = ({ userId, accountSnapshot = null }) => {
         const cachedVibes = await getVibePanelState();
 
         if (!cancelled && Array.isArray(cachedVibes) && cachedVibes.length > 0) {
-          const normalizedCachedVibes = cachedVibes.map((item) => ({
-            ...item,
-            isTemporarilyDisabled: item.isTemporarilyDisabled === true,
-          }));
+          const normalizedCachedVibes = restoreVibePanel(cachedVibes, apiClient.isStudio());
           setVibeImages((prev) => (prev.length > 0 ? prev : normalizedCachedVibes));
         }
       } catch (error) {
@@ -570,7 +620,7 @@ const AIPaintingPageContent = ({ userId, accountSnapshot = null }) => {
         if (cancelled) return;
         setErrorRecordsOwnerKey(ownerKey);
         setWorkspaceErrors(parsePaintingErrorRecords(
-          localStorage.getItem(PAINTING_ERROR_RECORDS_STORAGE_KEY),
+          userStorage.getItem(PAINTING_ERROR_RECORDS_STORAGE_KEY),
           ownerKey,
         ));
       } catch (error) {
@@ -594,8 +644,8 @@ const AIPaintingPageContent = ({ userId, accountSnapshot = null }) => {
     }
 
     try {
-      const currentRegistry = localStorage.getItem(PAINTING_ERROR_RECORDS_STORAGE_KEY);
-      localStorage.setItem(
+      const currentRegistry = userStorage.getItem(PAINTING_ERROR_RECORDS_STORAGE_KEY);
+      userStorage.setItem(
         PAINTING_ERROR_RECORDS_STORAGE_KEY,
         serializePaintingErrorRecords(
           currentRegistry,
@@ -643,8 +693,8 @@ const AIPaintingPageContent = ({ userId, accountSnapshot = null }) => {
     ));
     try {
       if (errorRecordsOwnerKey) {
-        const currentRegistry = localStorage.getItem(PAINTING_ERROR_RECORDS_STORAGE_KEY);
-        localStorage.setItem(
+        const currentRegistry = userStorage.getItem(PAINTING_ERROR_RECORDS_STORAGE_KEY);
+        userStorage.setItem(
           PAINTING_ERROR_RECORDS_STORAGE_KEY,
           serializePaintingErrorRecords(currentRegistry, errorRecordsOwnerKey, []),
         );
@@ -747,7 +797,8 @@ const AIPaintingPageContent = ({ userId, accountSnapshot = null }) => {
       generationParams,
       isInpaintMode ? inpaintCostParameters : imageToImageCostParameters,
     );
-    const costLabel = estimatedCost.perImage === -3
+    const studioUsage = apiClient.isStudio() ? describeStudioUsage(liveAccountSnapshot?.studio, generationParams) : null;
+    const costLabel = studioUsage?.costLabel || (estimatedCost.perImage === -3
       ? null
       : (estimatedCost.count > 1
         ? t('painting.workspace.anlas.estimatedBatchCost', {
@@ -756,7 +807,7 @@ const AIPaintingPageContent = ({ userId, accountSnapshot = null }) => {
         })
         : t('painting.workspace.anlas.estimatedSingleCost', {
           cost: formatNumber(estimatedCost.perImage),
-        }));
+        })));
 
     if (
       isV4
@@ -791,6 +842,14 @@ const AIPaintingPageContent = ({ userId, accountSnapshot = null }) => {
         icon: <CancelIcon />,
         disabled: false,
         cost: null,
+      };
+    }
+
+    if (inpaintPreviewBatch.active) {
+      return {
+        text: t('painting.workspace.actions.inpainting'),
+        shortText: t('painting.workspace.actions.inpainting'),
+        action: () => {}, color: 'primary', icon: <ImageIcon />, disabled: true, cost: null,
       };
     }
 
@@ -837,10 +896,11 @@ const AIPaintingPageContent = ({ userId, accountSnapshot = null }) => {
         color: 'primary',
         icon: <ImageIcon />,
         disabled: false,
-        cost: estimatedCost.perImage,
-        costTotal: estimatedCost.total,
-        costCount: estimatedCost.count,
+        cost: studioUsage ? studioUsage.perImage : estimatedCost.perImage,
+        costTotal: studioUsage ? studioUsage.total : estimatedCost.total,
+        costCount: studioUsage ? studioUsage.count : estimatedCost.count,
         costLabel,
+        costHelp: studioUsage?.costHelp,
       };
     }
 
@@ -855,10 +915,11 @@ const AIPaintingPageContent = ({ userId, accountSnapshot = null }) => {
       color: 'primary',
       icon: null,
       disabled: false,
-      cost: estimatedCost.perImage,
-      costTotal: estimatedCost.total,
-      costCount: estimatedCost.count,
+      cost: studioUsage ? studioUsage.perImage : estimatedCost.perImage,
+      costTotal: studioUsage ? studioUsage.total : estimatedCost.total,
+      costCount: studioUsage ? studioUsage.count : estimatedCost.count,
       costLabel,
+      costHelp: studioUsage?.costHelp,
     };
   };
   // 确保生成按钮初始化正确显示参数
@@ -1271,9 +1332,17 @@ const AIPaintingPageContent = ({ userId, accountSnapshot = null }) => {
 
   // 图像/视频生成请求
   const handleGenerate = async () => {
+    // 预览间隔没有活动网络请求，但仍属于同一批次，不能再启动另一条预览循环。
+    if (inpaintPreviewRunningRef.current) return;
+    const owner = currentStorageScope();
+    const isCurrent = () => pageActiveRef.current && currentStorageScope() === owner;
+    const checkOwner = () => { if (!isCurrent()) throw Object.assign(new Error('STUDIO_IDENTITY_CHANGED'), { code: 'STUDIO_IDENTITY_CHANGED' }); };
     let requestedModel = generationParams.model;
 
     try {
+      checkOwner();
+      // 单张与连续生成共用本次下载设置，避免成功回调引用未定义变量而中断批次。
+      const imageSettings = getImageSettings();
       // 关闭移动抽屉以便用户查看结果
       if (isMobile && mobileDrawerOpen) {
         setMobileDrawerOpen(false);
@@ -1344,10 +1413,12 @@ const AIPaintingPageContent = ({ userId, accountSnapshot = null }) => {
         let generatedPreviewCount = 0;
         const previewBatchId = crypto.randomUUID();
 
+        inpaintPreviewRunningRef.current = true;
         setInpaintPreviewBatch({ active: true, current: 0, total: previewCount });
 
         try {
           for (let previewIndex = 0; previewIndex < previewCount; previewIndex += 1) {
+            checkOwner();
             if (previewIndex > 0) {
               const preparedPayload = inpaintWorkspaceRef.current.prepareGeneration();
               if (!preparedPayload) {
@@ -1359,6 +1430,7 @@ const AIPaintingPageContent = ({ userId, accountSnapshot = null }) => {
 
             const previewItem = await generatePreview({
               ...previewParams,
+              studioWorkspace: apiClient.isStudio() ? inpaintWorkspaceRef.current.exportStudioWorkspace() : null,
               batch_id: previewBatchId,
               index: previewIndex,
               batch_size: previewCount,
@@ -1368,29 +1440,26 @@ const AIPaintingPageContent = ({ userId, accountSnapshot = null }) => {
               throw createWorkspaceError('INPAINT_PREVIEW_GENERATION_FAILED');
             }
 
-            let applied = false;
-            try {
-              applied = await inpaintWorkspaceRef.current.applyGeneratedPatch(previewItem);
-            } finally {
-              // 预览不会进入受 Provider 管理的画廊；工作区完成图像加载后立即释放 Blob URL。
-              revokeObjectUrl(previewItem.objectUrlToRevoke);
-            }
-            if (!applied) {
-              throw createWorkspaceError('INPAINT_PREVIEW_LOAD_FAILED');
-            }
+            await applyOwnedPreview({ item: previewItem, checkOwner,
+              apply: (item, guard) => inpaintWorkspaceRef.current.applyGeneratedPatch(item, guard),
+              release: item => revokeObjectUrl(item.objectUrlToRevoke),
+              acknowledge: item => {
+                if (item.studioRequestId) apiClient.studioTasks.acknowledge(item.studioRequestId);
+                if (item.studioDirectorReceipt) apiClient.studioDirectors.acknowledge(item.studioDirectorReceipt);
+              },
+            });
 
             generatedPreviewCount += 1;
-            if (previewIndex < previewCount - 1) {
-              await new Promise((resolve) => window.setTimeout(resolve, 15_000));
-            }
           }
         } catch (error) {
-          await apiClient.cancelImageBatch(previewBatchId).catch(() => {});
+          if (isCurrent()) await apiClient.cancelImageBatch(previewBatchId).catch(() => {});
           throw error;
         } finally {
-          setInpaintPreviewBatch({ active: false, current: 0, total: 0 });
+          inpaintPreviewRunningRef.current = false;
+          if (isCurrent()) setInpaintPreviewBatch({ active: false, current: 0, total: 0 });
         }
 
+        checkOwner();
         showNotification(
           payload.generationMode === 'inpaint'
             ? (generatedPreviewCount > 1
@@ -1414,9 +1483,10 @@ const AIPaintingPageContent = ({ userId, accountSnapshot = null }) => {
               // 如果启用了自动保存，则保存每张生成的图像
               if (imageSettings.autoSaveEnabled) {
                 setTimeout(() => {
-                  autoSaveImage(newImage, imageSettings)
+                  if (!isCurrent()) return;
+                  autoSaveImage(newImage, imageSettings, isCurrent)
                     .then(success => {
-                      if (success) {
+                      if (success && isCurrent()) {
                         console.log(`已自动保存图像: ${newImage.id}`);
                       }
                     })
@@ -1487,6 +1557,7 @@ const AIPaintingPageContent = ({ userId, accountSnapshot = null }) => {
       } else {
         // 单次生成 (图片或视频)
         const newItem = await generate(params);
+        checkOwner();
 
         if (!newItem) {
           if (generationStatus && generationStatus.status === 'failed') {
@@ -1507,9 +1578,10 @@ const AIPaintingPageContent = ({ userId, accountSnapshot = null }) => {
         // 如果是图片且启用了自动保存
         if (imageSettings.autoSaveEnabled) {
           setTimeout(() => {
-            autoSaveImage(newItem, imageSettings)
+            if (!isCurrent()) return;
+            autoSaveImage(newItem, imageSettings, isCurrent)
               .then(success => {
-                if (success) {
+                if (success && isCurrent()) {
                   showNotification(t('painting.workspace.notifications.imageAutoSaved'), 'info', true);
                 }
               })
@@ -1518,6 +1590,7 @@ const AIPaintingPageContent = ({ userId, accountSnapshot = null }) => {
         }
       }
     } catch (error) {
+      if (!isCurrent()) return;
       console.error('图像生成过程中发生错误:', error);
 
       if (leftPanelMode === 'inpaint') {
@@ -1634,7 +1707,10 @@ const AIPaintingPageContent = ({ userId, accountSnapshot = null }) => {
     };
 
     switch (action) {
-      case 'official-upscale':
+      case 'official-upscale': {
+        const owner = currentStorageScope();
+        const isCurrent = () => pageActiveRef.current && currentStorageScope() === owner;
+        const checkOwner = () => { if (!isCurrent()) throw Object.assign(new Error('STUDIO_IDENTITY_CHANGED'), { code: 'STUDIO_IDENTITY_CHANGED' }); };
         if (upscaleInFlightRef.current) return false;
         upscaleInFlightRef.current = true;
         setIsUpscaling(true);
@@ -1642,28 +1718,25 @@ const AIPaintingPageContent = ({ userId, accountSnapshot = null }) => {
           const sourceToUpscale = currentItem.isComposited
             ? currentItem.src
             : (currentItem.downloadSrc || currentItem.originalSrc || currentItem.src);
-          const sourceResponse = await fetch(sourceToUpscale);
-          if (!sourceResponse.ok) {
-            throw createWorkspaceError('MEDIA_ASSET_DOWNLOAD_FAILED', {
-              statusCode: sourceResponse.status,
-            });
-          }
-          const imageDataUrl = await convertBlobToDataURL(await sourceResponse.blob());
+          const imageDataUrl = await loadOwnedImageSource({ source: sourceToUpscale,
+            fetchSource: fetch, encodeBlob: convertBlobToDataURL, checkOwner });
+          checkOwner();
           const response = await apiClient.upscaleImage({
             image: imageDataUrl,
             model: currentItem.model || generationParams.model,
           });
+          checkOwner();
           const upscaledImage = response?.images?.[0];
-          if (!upscaledImage?.data) throw createWorkspaceError('INVALID_GENERATED_FILE');
+          if (!upscaledImage?.data && !upscaledImage?.blob) throw createWorkspaceError('INVALID_GENERATED_FILE');
 
-          const cachedBlob = createBlobFromBase64(
+          const cachedBlob = upscaledImage.blob || createBlobFromBase64(
             upscaledImage.data,
             upscaledImage.mime_type || 'image/png',
           );
           const displayUrl = createObjectUrlFromBlob(cachedBlob);
           if (!cachedBlob || !displayUrl) throw createWorkspaceError('INVALID_GENERATED_FILE');
 
-          appendGeneratedItem({
+          const accepted = appendGeneratedItem({
             type: 'image',
             src: displayUrl,
             originalSrc: displayUrl,
@@ -1672,11 +1745,13 @@ const AIPaintingPageContent = ({ userId, accountSnapshot = null }) => {
             objectUrlToRevoke: displayUrl,
             seed: upscaledImage.seed ?? currentItem.seed ?? '',
             prompt: currentItem.prompt || '',
-            width: currentItem.width,
-            height: currentItem.height,
+            width: upscaledImage.width || currentItem.width,
+            height: upscaledImage.height || currentItem.height,
             isComposited: false,
             model: currentItem.model || generationParams.model,
           });
+          if (!accepted) return false;
+          if (response.studio_upscale_receipt) apiClient.studioUpscales.acknowledge(response.studio_upscale_receipt);
           if (response.account_snapshot) {
             window.dispatchEvent(new CustomEvent('novelai:account-updated', {
               detail: response.account_snapshot,
@@ -1685,6 +1760,7 @@ const AIPaintingPageContent = ({ userId, accountSnapshot = null }) => {
           notify(t('painting.workspace.notifications.officialUpscaleComplete'), 'success');
           return true;
         } catch (error) {
+          if (!isCurrent()) return false;
           console.error('官方 Upscale 失败:', error);
           notify(
             getWorkspaceErrorMessage(t, error, 'painting.workspace.errors.officialUpscaleFailed'),
@@ -1696,9 +1772,9 @@ const AIPaintingPageContent = ({ userId, accountSnapshot = null }) => {
           return false;
         } finally {
           upscaleInFlightRef.current = false;
-          setIsUpscaling(false);
+          if (isCurrent()) setIsUpscaling(false);
         }
-
+      }
       case 'use-as-input':
         try {
           const response = await fetch(currentItem.src);
@@ -1836,6 +1912,12 @@ const AIPaintingPageContent = ({ userId, accountSnapshot = null }) => {
 
 
   const renderAnlasStatus = () => {
+    if (apiClient.isStudio()) {
+      const usage = describeStudioUsage(liveAccountSnapshot?.studio, generationParams);
+      return <Tooltip title={liveAccountSnapshot?.stale ? `额度刷新失败，以下为上次结果。${usage.quotaHelp}` : usage.quotaHelp} arrow><Button size="small"
+        sx={{ textTransform: 'none', color: 'text.primary', fontVariantNumeric: 'tabular-nums' }}
+        onClick={() => window.dispatchEvent(new Event('studio:open-account'))}>{usage.quotaLabel}</Button></Tooltip>;
+    }
     const total = liveAccountSnapshot?.anlas?.total;
     const displayTotal = total === null || total === undefined
       ? t('painting.workspace.anlas.unavailable')
@@ -1905,7 +1987,7 @@ const AIPaintingPageContent = ({ userId, accountSnapshot = null }) => {
     if (!isDisplayableNovelAICost(buttonState.cost)) return null;
 
     return (
-      <Tooltip title={t('painting.workspace.anlas.estimatedCostHelp')} arrow>
+      <Tooltip title={buttonState.costHelp || t('painting.workspace.anlas.estimatedCostHelp')} arrow>
         <Box
           component="span"
           aria-label={buttonState.costLabel}
@@ -1925,9 +2007,9 @@ const AIPaintingPageContent = ({ userId, accountSnapshot = null }) => {
             whiteSpace: 'nowrap',
           }}
         >
-          <MonetizationOnIcon
+          {!apiClient.isStudio() && <MonetizationOnIcon
             sx={{ display: 'block', flexShrink: 0, fontSize: compact ? 13 : 14, color: '#FFE082' }}
-          />
+          />}
           <Typography
             component="span"
             variant="caption"
@@ -2409,7 +2491,6 @@ const AIPaintingPageContent = ({ userId, accountSnapshot = null }) => {
                           onClick={buttonState.action}
                           color={buttonState.color}
                           fullWidth
-                          title={buttonState.text}
                           aria-label={buttonState.text}
                           sx={{
                             height: { xs: '44px', sm: '48px', md: '52px' },
@@ -2755,7 +2836,6 @@ const AIPaintingPageContent = ({ userId, accountSnapshot = null }) => {
                     disabled={buttonState.disabled}
                     onClick={buttonState.action}
                     color={buttonState.color}
-                    title={buttonState.text}
                     aria-label={buttonState.text}
                     sx={{
                       flexGrow: 1,

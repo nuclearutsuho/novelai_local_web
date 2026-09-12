@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   Alert,
@@ -57,6 +57,7 @@ import {
 import AIPaintingPage from '@/components/ai-painting/AIPaintingPage';
 import SettingsPage from '@/components/settings/SettingsPage';
 import apiClient from '@/utils/ApiClient';
+import { IDENTITY_EVENT_KEY, userStorage } from '@/utils/userStorage.mjs';
 import { useI18n } from '@/i18n/I18nProvider';
 import LanguageSwitcher from '@/components/i18n/LanguageSwitcher';
 import { useAppTheme } from '@/providers/AppThemeProvider';
@@ -70,7 +71,7 @@ import {
 const safeLocalStorage = {
   getItem: (key, defaultValue = null) => {
     if (typeof window === 'undefined') return defaultValue;
-    return window.localStorage.getItem(key) || defaultValue;
+    return userStorage.getItem(key) || defaultValue;
   },
 };
 
@@ -253,6 +254,24 @@ const AccountDialog = ({ open, onClose, accountSnapshot, onAccountSnapshot, onLo
     : accountSnapshot?.information?.trial_activated === false
       ? t('main.local.trialNotActivated')
       : unavailable;
+
+  if (accountSnapshot?.studio) {
+    const { user, quota, permissions } = accountSnapshot.studio;
+    const remaining = (value) => value == null ? '未设上限' : formatNumber(value);
+    return <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth fullScreen={isMobile}>
+      <DialogTitle>Studio 账号：{user.username}</DialogTitle>
+      <DialogContent>
+        {error && <Alert severity="error">{error}</Alert>}
+        <Alert severity="info">使用 Studio 统一调度。下面是个人可用配额，不是账号池余额。</Alert>
+        <DetailRow label="Anlas 日 / 月剩余" value={`${remaining(quota.anlas.daily_remaining)} / ${remaining(quota.anlas.monthly_remaining)}`} />
+        <DetailRow label="任务日 / 月剩余" value={`${remaining(quota.tasks.daily_remaining)} / ${remaining(quota.tasks.monthly_remaining)}`} />
+        <DetailRow label="V5 日 / 月剩余" value={permissions?.can_use_nai_v5_generation === true
+          ? `${remaining(quota.v5_tasks.daily_remaining)} / ${remaining(quota.v5_tasks.monthly_remaining)}`
+          : permissions?.can_use_nai_v5_generation === false ? '未开通' : '权限信息暂不可用'} />
+      </DialogContent>
+      <DialogActions><Button onClick={onLogout}>退出 Studio</Button><Button onClick={onClose}>关闭</Button></DialogActions>
+    </Dialog>;
+  }
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth fullScreen={isMobile} PaperProps={{
@@ -488,6 +507,7 @@ export default function MainPage() {
   const [accountDialogOpen, setAccountDialogOpen] = useState(false);
   const [closeConfirmOpen, setCloseConfirmOpen] = useState(false);
   const [pageToClose, setPageToClose] = useState(null);
+  const leavingSession = useRef(false);
 
   const applyAccountSnapshot = useCallback((snapshot) => {
     if (!snapshot) return;
@@ -497,8 +517,32 @@ export default function MainPage() {
 
   const logout = useCallback(async () => {
     await apiClient.logout();
-    router.replace('/login');
-  }, [router]);
+    // 主动退出也先卸载私有工作台，避免离开确认拦截导航后旧回调仍然有效。
+    leavingSession.current = true;
+    setOpenPages([]);
+    setAccountSnapshot(null);
+    setAuthChecking(true);
+    window.setTimeout(() => window.location.replace('/login'), 0);
+  }, []);
+
+  useEffect(() => {
+    const changed = (event) => {
+      if (event.key !== IDENTITY_EVENT_KEY) return;
+      // 先卸载含私有数据的工作台；即使浏览器拦截离开提示，也不继续展示旧身份内容。
+      leavingSession.current = true;
+      setOpenPages([]);
+      setAccountSnapshot(null);
+      setAuthChecking(true);
+      window.setTimeout(() => window.location.replace('/login'), 0);
+    };
+    window.addEventListener('storage', changed);
+    const openAccount = () => setAccountDialogOpen(true);
+    window.addEventListener('studio:open-account', openAccount);
+    return () => {
+      window.removeEventListener('storage', changed);
+      window.removeEventListener('studio:open-account', openAccount);
+    };
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -542,7 +586,7 @@ export default function MainPage() {
   }, []);
 
   const [pages, setPages] = useState(() => {
-    const storage = typeof window !== 'undefined' ? window.localStorage : null;
+    const storage = typeof window !== 'undefined' ? userStorage : null;
     if (storage) migrateLegacyPageColors(storage);
     return [
       { id: PAGE_IDS.AI_PAINTING, labelKey: 'pages.aiPainting', icon: <BrushIcon />, component: <AIPaintingPage />, color: readPageColor(storage, PAGE_IDS.AI_PAINTING), confirmOnClose: true },
@@ -580,6 +624,8 @@ export default function MainPage() {
 
   useEffect(() => {
     const handleBeforeUnload = (event) => {
+      // 退出或换号已结束当前身份，不再用普通关页提示拦截登录页跳转。
+      if (leavingSession.current) return;
       if (!openPages.some((page) => page.confirmOnClose)) return;
       event.preventDefault();
       event.returnValue = t('main.unsavedWarning');
@@ -746,7 +792,7 @@ export default function MainPage() {
                     {page.id === PAGE_IDS.SETTINGS
                       ? React.cloneElement(page.component, { pages: visiblePages })
                       : React.cloneElement(page.component, {
-                        userId: accountSnapshot?.information?.email || '',
+                        userId: accountSnapshot?.studio ? `studio:${accountSnapshot.studio.user.id}` : accountSnapshot?.information?.email || '',
                         accountSnapshot,
                       })}
                   </Box>

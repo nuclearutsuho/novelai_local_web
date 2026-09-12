@@ -1,3 +1,4 @@
+import { userStorage } from '@/utils/userStorage.mjs';
 // ImageSaveUtils.js
 // 图像保存和文件名生成工具类
 
@@ -167,17 +168,19 @@ export const generateFileName = (image = {}, imageSettings = {}, options = {}) =
  * Returns:
  *   Promise<boolean>: 保存成功时返回 true，失败时返回 false。
  */
-export const autoSaveImage = async (image, imageSettings) => {
+export const autoSaveImage = async (image, imageSettings, isCurrent = () => true) => {
   try {
+    if (!isCurrent()) return false;
     const fileName = generateFileName(image, imageSettings);
 
     if (image.cachedBlob) {
       await downloadBlobToFile(image.cachedBlob, fileName);
     } else {
-      await downloadUrlToFile(image.downloadSrc || image.originalSrc || image.src, fileName);
+      const saved = await downloadUrlToFile(image.downloadSrc || image.originalSrc || image.src, fileName, { isCurrent });
+      if (saved === false) return false;
     }
     
-    return true;
+    return isCurrent();
   } catch (error) {
     console.error('自动保存图像失败:', error);
     return false;
@@ -195,10 +198,10 @@ export const autoSaveImage = async (image, imageSettings) => {
  */
 export const getImageSettings = () => {
   return {
-    autoSaveEnabled: localStorage.getItem('autoSaveEnabled') === 'true',
-    fileNamePrefix: localStorage.getItem('fileNamePrefix') || 'AI_Image',
+    autoSaveEnabled: userStorage.getItem('autoSaveEnabled') === 'true',
+    fileNamePrefix: userStorage.getItem('fileNamePrefix') || 'AI_Image',
     fileNameSuffix: '',
-    namingMethod: localStorage.getItem('namingMethod') || 'seed',
+    namingMethod: userStorage.getItem('namingMethod') || 'seed',
     randomStringLength: 8,
     includeDateInName: false,
     dateFormat: 'yyyyMMdd_HHmmss'

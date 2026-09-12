@@ -31,6 +31,7 @@ import {
   Casino as CasinoIcon,
 } from '@mui/icons-material';
 import apiClient from '../../utils/ApiClient';
+import { currentStorageScope } from '../../utils/userStorage.mjs';
 import { useI18n } from '@/i18n/I18nProvider';
 
 // 导入提示词编辑器组件
@@ -64,6 +65,13 @@ const PromptPanel = ({
   characterTabs = [],
 }) => {
   const { t } = useI18n();
+  const ownerScope = useRef(currentStorageScope());
+  const activeRef = useRef(true);
+  const isCurrent = useCallback(() => activeRef.current && ownerScope.current === currentStorageScope(), []);
+  useEffect(() => {
+    activeRef.current = true;
+    return () => { activeRef.current = false; };
+  }, []);
   const [tabValue, setTabValue] = useState(0);
   const effectiveTabValue = tabValue;
   const [expanded, setExpanded] = useState(true);
@@ -351,12 +359,15 @@ const PromptPanel = ({
   };
 
   const fetchNotes = async () => {
+    if (!isCurrent()) return;
     setIsLoadingNotes(true);
     try {
       const response = await apiClient.getTexts();
+      if (!isCurrent()) return;
       setNotes(response.texts || []);
     } catch (error) {
       console.error('Error fetching notes:', error);
+      if (!isCurrent()) return;
       const reported = forwardPaintingPanelError(onError, error, {
         source: 'prompt-notes',
         messageKey: 'painting.workspace.prompt.fetchNotesFailed',
@@ -369,7 +380,7 @@ const PromptPanel = ({
         });
       }
     } finally {
-      setIsLoadingNotes(false);
+      if (isCurrent()) setIsLoadingNotes(false);
     }
   };
 
@@ -469,8 +480,10 @@ const PromptPanel = ({
   };
 
   const handleExportNotes = async () => {
+    if (!isCurrent()) return;
     try {
-      const response = await apiClient.exportTexts();
+      const response = await apiClient.exportTexts({ isCurrent });
+      if (!isCurrent()) return;
       const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(response.texts));
       const downloadAnchorNode = document.createElement('a');
       downloadAnchorNode.setAttribute("href", dataStr);
@@ -484,6 +497,7 @@ const PromptPanel = ({
         severity: 'success'
       });
     } catch (error) {
+      if (!isCurrent()) return;
       forwardPaintingPanelError(onError, error, {
         source: 'note-export',
         messageKey: 'painting.workspace.prompt.exportNotesFailed',
@@ -497,14 +511,17 @@ const PromptPanel = ({
   };
 
   const handleImportNotes = () => {
+    if (!isCurrent()) return;
     const input = document.createElement('input');
     input.type = 'file';
     input.accept = '.json';
     input.onchange = async (event) => {
+      if (!isCurrent()) return;
       const file = event.target.files[0];
       if (file) {
         const reader = new FileReader();
         reader.onload = async (e) => {
+          if (!isCurrent()) return;
           let content;
           try {
             content = JSON.parse(e.target.result);
@@ -520,7 +537,8 @@ const PromptPanel = ({
           }
 
           try {
-            await apiClient.importTexts(content);
+            await apiClient.importTexts(content, { isCurrent });
+            if (!isCurrent()) return;
             setSnackbar({
               open: true,
               message: t('painting.workspace.prompt.notesImported'),
@@ -528,6 +546,7 @@ const PromptPanel = ({
             });
             await fetchNotes();
           } catch (error) {
+            if (!isCurrent()) return;
             forwardPaintingPanelError(onError, error, {
               source: 'note-import',
               messageKey: 'painting.workspace.prompt.importNotesFailed',
