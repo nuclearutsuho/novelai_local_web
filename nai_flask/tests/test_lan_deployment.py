@@ -10,6 +10,13 @@ from lan_app import create_lan_app, ORIGIN, LOCAL_ORIGIN
 @pytest.fixture
 def lan(tmp_path, fake_client):
     application = create_lan_app({"TESTING": True, "DATA_DIR": str(tmp_path)}, fake_client)
+    # 安全边界测试使用独立页面，不依赖开发机已有的 Next 构建产物。
+    frontend = tmp_path / "frontend"
+    for name in ("index.html", "login.html", "studio/start.html", "studio/callback.html"):
+        page = frontend / name
+        page.parent.mkdir(parents=True, exist_ok=True)
+        page.write_text("<!doctype html><title>Idlecloud test</title>", encoding="utf-8")
+    application.config["FRONTEND_OUT_DIR"] = str(frontend)
     return application.test_client(), fake_client
 
 
