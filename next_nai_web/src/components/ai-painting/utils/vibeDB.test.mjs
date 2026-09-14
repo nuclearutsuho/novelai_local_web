@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises';
 
 const source = (await readFile(new URL('./vibeDB.js', import.meta.url), 'utf8'))
   .replace("'@/utils/userStorage.mjs'", JSON.stringify(new URL('../../../utils/userStorage.mjs', import.meta.url).href));
-const module = await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`);
+const vibeModule = await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`);
 
 // 控制 IndexedDB 事件顺序，专门复现 request 成功后 transaction 回滚的窗口。
 function databaseBoundary(t) {
@@ -37,7 +37,7 @@ function databaseBoundary(t) {
 test('缓存请求成功后仍等待事务提交，提交后才可确认领取', async t => {
   const state = databaseBoundary(t);
   let confirmed = false;
-  const saving = module.addVibeToCache({ image: 'raw', encodings: { v4full: 'encoded' } }, 'hash', 'model', 0.7)
+  const saving = vibeModule.addVibeToCache({ image: 'raw', encodings: { v4full: 'encoded' } }, 'hash', 'model', 0.7)
     .then(() => { confirmed = true; });
   await new Promise(setImmediate);
   state.request.onsuccess?.();
@@ -54,7 +54,7 @@ test('缓存请求成功后仍等待事务提交，提交后才可确认领取',
 
 test('请求成功后事务回滚时拒绝保存并关闭连接', async t => {
   const state = databaseBoundary(t);
-  const saving = module.saveVibePanelState([{ hash: 'not-committed' }]);
+  const saving = vibeModule.saveVibePanelState([{ hash: 'not-committed' }]);
   const rejected = assert.rejects(saving, /quota/);
   await new Promise(setImmediate);
   state.request.onsuccess?.();
@@ -66,7 +66,7 @@ test('请求成功后事务回滚时拒绝保存并关闭连接', async t => {
 
 test('读取提交时切换身份不返回前一用户的缓存', async t => {
   const state = databaseBoundary(t);
-  const reading = module.getAllVibesFromCache();
+  const reading = vibeModule.getAllVibesFromCache();
   const rejected = assert.rejects(reading, /STUDIO_IDENTITY_CHANGED/);
   await new Promise(setImmediate);
   state.request.result = [{ image: 'private' }];

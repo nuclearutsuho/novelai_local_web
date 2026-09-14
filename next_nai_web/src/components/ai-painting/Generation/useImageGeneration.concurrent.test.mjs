@@ -41,10 +41,10 @@ source = source.replace("from 'react'", `from '${fixtureUrl}'`)
   .replace("from '@/utils/StudioBatchFlow.mjs'", `from '${new URL('../../../utils/StudioBatchFlow.mjs', import.meta.url).href}'`)
   .replace("from '../tools/BatchGeneration/BatchGenerationService'", `from '${new URL('../tools/BatchGeneration/BatchGenerationService.js', import.meta.url).href}'`)
   .replace("from './errors'", `from '${new URL('./errors.js', import.meta.url).href}'`);
-const { default: useImageGeneration } = await import(url(source));
+const { default: runGenerationFixture } = await import(url(source));
 
 test('真实生成 hook 不再被单任务引用锁串行化，重复点击不覆盖在途批次', async () => {
-  const hook = useImageGeneration();
+  const hook = runGenerationFixture();
   const cleanups = fixture.effects.map(effect => effect());
   const received = [];
   const done = hook.startBatchGeneration({ batchSize: 3, model: 'nai-diffusion-4-full' }, item => {
@@ -75,7 +75,7 @@ test('官方直连与 Director 工具仍逐张执行，不进入 Studio 并发�
     for (const studio of [false, true]) {
       fixture.effects.length = 0;
       fixture.apiClient.isStudio = () => studio;
-      const hook = useImageGeneration();
+      const hook = runGenerationFixture();
       const cleanups = fixture.effects.map(effect => effect());
       const initial = fixture.posts.length;
       const done = hook.startBatchGeneration({ batchSize: 2, imageToImage: { directorTools: { active: true } } }, item => {
