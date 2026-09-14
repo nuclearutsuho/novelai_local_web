@@ -96,6 +96,7 @@ const compactInfoIconSx = {
 
 
 const BasicParameters = ({
+  studioGenerationLimits = null,
   params,
   handleParamChange,
   handleSeedChange,
@@ -122,7 +123,7 @@ const BasicParameters = ({
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
   // 初始化状态，如果 params 中已有 use_upscale_credits 则同步
   const [isLargeMode, setIsLargeMode] = useState(!!params.use_upscale_credits);
-  const standardMaxSteps = isV5Model ? NOVELAI_V5_STANDARD_MAX_STEPS : 28;
+  const standardMaxSteps = isV5Model && !apiClient.isStudio() ? NOVELAI_V5_STANDARD_MAX_STEPS : 28;
 
   // 监听 params 变化，确保外部（如缓存加载）改变参数时，UI 状态能同步
   useEffect(() => {
@@ -159,7 +160,7 @@ const BasicParameters = ({
       }
 
       // 2. 检查并修正步数
-      if (params.steps > standardMaxSteps) {
+      if (!apiClient.isStudio() && params.steps > standardMaxSteps) {
         handleParamChange('steps', standardMaxSteps);
       }
     }
@@ -167,7 +168,9 @@ const BasicParameters = ({
 
   const sizePresets = isLargeMode ? largeSizePresets : standardSizePresets;
   const maxResolution = isLargeMode ? 4096 : 2048;
-  const maxSteps = isLargeMode ? 50 : standardMaxSteps;
+  // 大图开关不决定 Studio 步数权限；权限未加载时先显示免费范围。
+  const maxSteps = apiClient.isStudio() ? (studioGenerationLimits?.max_steps ?? 28)
+    : isLargeMode ? 50 : standardMaxSteps;
   const isSmeaUnsupported = params.isV4Model;
   // V4 及以上模型官方不支持 SMEA / SMEA DYN，UI 必须显示为关闭且不可交互。
   const smeaChecked = isSmeaUnsupported ? false : Boolean(params.smea);
@@ -345,8 +348,9 @@ const BasicParameters = ({
           min={1}
           max={maxSteps}
           step={1}
+          marks={apiClient.isStudio() ? [{ value: studioGenerationLimits?.free_max_steps ?? 28, label: '28 · 免费上限' }] : false}
           onChange={(newValue) => handleParamChange('steps', newValue)}
-          tooltip={t('painting.workspace.parameters.samplingStepsHelp')}
+          tooltip={apiClient.isStudio() ? '免费规格：不超过 28 步且像素数不超过 1024×1024；参考附加费用另计。' : t('painting.workspace.parameters.samplingStepsHelp')}
         />
 
         {/* 引导比例 */}

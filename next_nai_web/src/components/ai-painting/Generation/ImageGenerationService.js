@@ -113,7 +113,7 @@ const generateImage = async (requestParams, onProgress = () => {}, checkOwner = 
   const params = sanitizeNovelAIV5GenerationParams({
     ...requestParams,
     model: normalizePaintingModelId(requestParams?.model),
-  });
+  }, { studioMode: apiClient.isStudio() });
   onProgress({ status: 'processing', queuePosition: 0, model: params.model });
 
   try {

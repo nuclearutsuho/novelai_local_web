@@ -376,7 +376,7 @@ def install_studio_bridge(app, *, transport=None):
         validate_generation_images(source)
         native = build_novelai_payload(source, current_user="studio", user_total_amount=999,
             use_upscale_credits=bool(source.get("use_upscale_credits", False)),
-            user_upscale_credits=NOVELAI_MAX_COST_PER_IMAGE)["data"]
+            user_upscale_credits=NOVELAI_MAX_COST_PER_IMAGE, studio_mode=True)["data"]
         return jsonify(transport.call("POST", "plans" if is_plan else "tasks", token=entry["token"],
             payload={"request_id": request_id, "request": native, "task_count": task_count}))
 

@@ -105,6 +105,7 @@ const extractBase64FromDataUrl = (dataUrl) => {
 
 // 主组件
 const ParameterPanel = ({
+  studioGenerationLimits = null,
   params: externalParams,
   onParamChange,
   getAllParametersRef = null,
@@ -308,9 +309,9 @@ const ParameterPanel = ({
       userStorage.setItem('aiImageParams_model', JSON.stringify(normalizedModel));
     }
     const normalizedInitialParams = normalizeNovelAISmeaParams(initialParams);
-    const normalizedNovelAIParams = sanitizeNovelAIV5GenerationParams(normalizedInitialParams);
+    const normalizedNovelAIParams = sanitizeNovelAIV5GenerationParams(normalizedInitialParams, { studioMode: apiClient.isStudio() });
     if (normalizedNovelAIParams.steps !== normalizedInitialParams.steps) {
-      // V5 普通模式现以 23 步为上限，旧缓存必须同步回写，避免刷新后再次越界。
+      // 按当前登录模式校正上限，Studio 的 28 步缓存不能被截回 23 步。
       userStorage.setItem('aiImageParams_steps', JSON.stringify(normalizedNovelAIParams.steps));
     }
 
@@ -1384,7 +1385,7 @@ const ParameterPanel = ({
         ...(directorToolParams && { directorTools: { active: true, tool: directorToolParams.type, params: directorToolParams.params || { enabled: true } } })
       };
     }
-    return sanitizeNovelAIV5GenerationParams(allParams);
+    return sanitizeNovelAIV5GenerationParams(allParams, { studioMode: apiClient.isStudio() });
   }, [params, positivePrompt, negativePrompt, randomPromptEnabled, randomPromptConfig,
     getVibeTransferData, getCharacterData, imagePreview, editedImageData,
     directorToolParams]);
@@ -1598,6 +1599,7 @@ const ParameterPanel = ({
           )}
 
           <BasicParameters
+              studioGenerationLimits={studioGenerationLimits}
               params={{ ...normalizeNovelAISmeaParams(params), isV4Model: isV4Model(params.model) }}
               handleParamChange={handleParamChange}
               handleSeedChange={handleSeedChange}

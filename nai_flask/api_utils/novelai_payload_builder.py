@@ -479,6 +479,7 @@ def build_novelai_payload(
     user_total_amount,
     use_upscale_credits=False,
     user_upscale_credits=0,
+    studio_mode=False,
 ):
     """
     为 NovelAI 模型构建经过权限与兼容性过滤的请求体。
@@ -511,6 +512,8 @@ def build_novelai_payload(
             data.setdefault(field_name, default_value)
 
     requested_steps = data.get("steps", V5_TEXT_TO_IMAGE_DEFAULTS["steps"] if model_name in V5_MODELS else 28)
+    if studio_mode and (type(requested_steps) is not int or not 1 <= requested_steps <= 50):
+        raise ExposableError("Studio steps must be an integer between 1 and 50.", 400)
     if model_name in V5_MODELS:
         try:
             requested_steps = int(requested_steps)
@@ -550,7 +553,14 @@ def build_novelai_payload(
         data["width"] = max(64, min(data["width"], max_dimension))
         data["height"] = max(64, min(data["height"], max_dimension))
 
-    data["steps"] = min(data.get("steps", 28), max_steps)
+    if studio_mode:
+        # 权限与费用交给 Studio 准入；保留用户步数，不能按本地免费/大图模式截断。
+        studio_steps = data.get("steps", 28)
+        if type(studio_steps) is not int or not 1 <= studio_steps <= 50:
+            raise ExposableError("Studio steps must be an integer between 1 and 50.", 400)
+        data["steps"] = studio_steps
+    else:
+        data["steps"] = min(data.get("steps", 28), max_steps)
     data["scale"] = min(data.get("scale", 10.0), 10.0)
     is_sm = data.get("sm", False)
     is_sm_dyn = data.get("sm_dyn", False)

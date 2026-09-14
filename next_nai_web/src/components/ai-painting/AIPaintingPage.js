@@ -1985,6 +1985,7 @@ const AIPaintingPageContent = ({ userId, accountSnapshot = null }) => {
 
   const renderGenerationCost = (buttonState, compact = false) => {
     if (!isDisplayableNovelAICost(buttonState.cost)) return null;
+    const hasCost = Number.isFinite(buttonState.cost) && buttonState.cost > 0;
 
     return (
       <Tooltip title={buttonState.costHelp || t('painting.workspace.anlas.estimatedCostHelp')} arrow>
@@ -2001,14 +2002,17 @@ const AIPaintingPageContent = ({ userId, accountSnapshot = null }) => {
             justifyContent: 'center',
             gap: compact ? 0.35 : 0.45,
             borderRadius: 1,
-            bgcolor: 'rgba(0,0,0,0.16)',
-            border: '1px solid rgba(255,255,255,0.16)',
+            // 仅有预计消耗时强调费用，免费状态沿用原配色。
+            bgcolor: hasCost ? '#3B3020' : 'rgba(0,0,0,0.16)',
+            color: hasCost ? '#EED3A0' : 'inherit',
+            border: hasCost ? '1px solid #B78322' : '1px solid rgba(255,255,255,0.16)',
+            borderLeftColor: hasCost ? '#FFB800' : 'rgba(255,255,255,0.16)',
             lineHeight: 1,
             whiteSpace: 'nowrap',
           }}
         >
           {!apiClient.isStudio() && <MonetizationOnIcon
-            sx={{ display: 'block', flexShrink: 0, fontSize: compact ? 13 : 14, color: '#FFE082' }}
+            sx={{ display: 'block', flexShrink: 0, fontSize: compact ? 13 : 14, color: hasCost ? '#F5E6B3' : '#FFE082' }}
           />}
           <Typography
             component="span"
@@ -2373,6 +2377,7 @@ const AIPaintingPageContent = ({ userId, accountSnapshot = null }) => {
                 }}
               >
                 <ParameterPanel
+                  studioGenerationLimits={liveAccountSnapshot?.studio?.generation_limits}
                   params={generationParams}
                   onParamChange={handleParamChange}
                   getAllParametersRef={getAllParametersRef}
@@ -2704,6 +2709,7 @@ const AIPaintingPageContent = ({ userId, accountSnapshot = null }) => {
                 }}
               >
                 <ParameterPanel
+                  studioGenerationLimits={liveAccountSnapshot?.studio?.generation_limits}
                   params={generationParams}
                   onParamChange={handleParamChange}
                   getAllParametersRef={getAllParametersRef}

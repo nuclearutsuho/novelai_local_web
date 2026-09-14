@@ -142,7 +142,7 @@ export const buildNovelAIV5CharacterControl = (characterTabs = [], useCoords = f
  * @param {object} params 当前生成参数。
  * @returns {object} V5 返回净化后的新对象，其他模型保持原对象不变。
  */
-export const sanitizeNovelAIV5GenerationParams = (params = {}) => {
+export const sanitizeNovelAIV5GenerationParams = (params = {}, { studioMode = false } = {}) => {
   if (!isNovelAIV5Model(params.model)) {
     return params;
   }
@@ -150,11 +150,12 @@ export const sanitizeNovelAIV5GenerationParams = (params = {}) => {
   const sanitizedParams = removeNovelAIUCPresetParams(params);
   NOVELAI_V5_UNSUPPORTED_PARAM_KEYS.forEach((key) => delete sanitizedParams[key]);
   const steps = Number(params.steps);
-  if (Number.isFinite(steps)) {
+  if (Number.isFinite(steps) && !studioMode) {
     const maxSteps = params.use_upscale_credits
       ? NOVELAI_V5_LARGE_MAX_STEPS
       : NOVELAI_V5_STANDARD_MAX_STEPS;
     sanitizedParams.steps = Math.min(steps, maxSteps);
   }
+  // Studio 的可选范围来自权限快照；发送时保留原值，由 Studio 最终校验，不能静默截步。
   return sanitizedParams;
 };
