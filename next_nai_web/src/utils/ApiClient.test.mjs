@@ -3,11 +3,13 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
 const source = await readFile(new URL('./ApiClient.js', import.meta.url), 'utf8');
+// data URL 没有文件目录，真实依赖必须转换成文件 URL 后才能解析。
 const testableSource = source.replace(
   /^import .*modelUtils';\r?\n/,
   "const isPaintingModelAllowed = (model) => model === 'nai-diffusion-4-5-full';\n",
 ).replace("'./userStorage.mjs'", JSON.stringify(new URL('./userStorage.mjs', import.meta.url).href))
   .replace("'./StudioTaskRunner.mjs'", JSON.stringify(new URL('./StudioTaskRunner.mjs', import.meta.url).href))
+  .replace("'./StudioTaskStorage.mjs'", JSON.stringify(new URL('./StudioTaskStorage.mjs', import.meta.url).href))
   .replace("'./StudioVibeRunner.mjs'", JSON.stringify(new URL('./StudioVibeRunner.mjs', import.meta.url).href));
 const apiModule = await import(`data:text/javascript;base64,${Buffer.from(testableSource).toString('base64')}`);
 const { ApiClient } = apiModule;
