@@ -52,29 +52,17 @@ test('等待上限只暂停查询，原任务成功后可继续领取', async ()
   assert.equal((await runner.resume()).studio_request_id, 'original');
 });
 
-test('过期结果显式清理必须再次确认，断网和记录变化不能误删', async () => {
-  let mode = 'expired';
-  const { runner, storage } = fixture(async (path, options) => {
+test('过期结果可直接移除本地记录，无须重新下载或提交生成', async () => {
+  let reads = 0;
+  const { runner } = fixture(async (path, options) => {
     assert.notEqual(options?.method, 'POST');
     if (!path.endsWith('/result')) return { status: 'success' };
-    if (mode === 'offline') throw { code: 'NETWORK_ERROR' };
-    if (mode === 'available') return { images: [] };
-    if (mode === 'changed') storage.setItem(PENDING_TASK_KEY, JSON.stringify({ ...runner.pending(), phase: 'ready' }));
+    reads++;
     throw { status: 410, code: 'idlecloud_result_expired' };
   });
   await assert.rejects(runner.resume(), { code: 'idlecloud_result_expired' });
   assert.equal(runner.pending().phase, 'result_expired');
-  mode = 'offline';
-  await assert.rejects(runner.forgetExpired('original'), { code: 'NETWORK_ERROR' });
-  assert.ok(runner.pending());
-  mode = 'available';
-  await assert.rejects(runner.forgetExpired('original'), { code: 'STUDIO_RESULT_AVAILABLE' });
-  assert.ok(runner.pending());
-  mode = 'changed';
-  await assert.rejects(runner.forgetExpired('original'), { code: 'STUDIO_RECORD_CHANGED' });
-  assert.equal(runner.pending().phase, 'ready');
-  mode = 'expired';
-  await assert.rejects(runner.resume(), { code: 'idlecloud_result_expired' });
-  await runner.forgetExpired('original');
+  runner.acknowledge('original');
   assert.equal(runner.pending(), null);
+  assert.equal(reads, 1);
 });

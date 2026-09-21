@@ -8,14 +8,15 @@ from api_utils.studio_bridge import install_studio_bridge, BridgeError, StudioTr
 ORIGIN = "https://localhost:5000"
 
 
-def test_image_stream_is_lazy_and_closes_on_disconnect(monkeypatch):
+@pytest.mark.parametrize("path", ["tasks/1/results/2", "tasks/1/results/2/thumbnail"])
+def test_image_stream_is_lazy_and_closes_on_disconnect(monkeypatch, path):
     from unittest.mock import MagicMock
     response = MagicMock(status_code=200, headers={"Content-Type": "image/png", "Content-Length": "6", "X-Image-Seed": "0"})
     response.iter_content.return_value = iter([b"abc", b"def"])
     session = MagicMock()
     session.get.return_value = response
     monkeypatch.setattr("api_utils.studio_bridge.requests.Session", lambda: session)
-    result = StudioTransport("http://127.0.0.1:46005").stream_image("tasks/1/results/2", token="synthetic")
+    result = StudioTransport("http://127.0.0.1:46005").stream_image(path, token="synthetic")
     response.iter_content.assert_not_called()
     assert next(iter(result.response)) == b"abc"
     result.close()
@@ -47,7 +48,8 @@ def test_image_stream_rejects_redirects_and_preserves_expiration(monkeypatch):
         transport.stream_image("tasks/../accounts", token="synthetic")
 
 
-def test_binary_result_keeps_session_and_identity_guards(bridge, monkeypatch):
+@pytest.mark.parametrize("suffix", ["", "/thumbnail"])
+def test_binary_result_keeps_session_and_identity_guards(bridge, monkeypatch, suffix):
     from flask import Response
     client, fake, _ = bridge
     calls = []
@@ -55,11 +57,11 @@ def test_binary_result_keeps_session_and_identity_guards(bridge, monkeypatch):
         calls.append(path)
         return Response(b"synthetic-image", content_type="image/png")
     monkeypatch.setattr(fake, "stream_image", stream, raising=False)
-    url = "/api/studio/tasks/7/results/8"
+    url = "/api/studio/tasks/7/results/8" + suffix
     assert client.get(url, base_url=ORIGIN, headers={"Accept": "image/*"}).status_code == 401
     complete(client, start(client))
     result = client.get(url, base_url=ORIGIN, headers={"Accept": "image/*", "X-Idlecloud-User": "1"})
-    assert result.data == b"synthetic-image" and calls == ["tasks/7/results/8"]
+    assert result.data == b"synthetic-image" and calls == ["tasks/7/results/8" + suffix]
     assert client.get(url, base_url=ORIGIN, headers={"Accept": "image/*", "X-Idlecloud-User": "2"}).status_code == 409
     assert len(calls) == 1
 
@@ -389,3 +391,15 @@ def test_batch_item_transport_allows_only_numeric_submission_and_task_ids(monkey
         with pytest.raises(BridgeError):
             transport.call("GET", path, token="synthetic-only")
     session.request.assert_called_once()
+
+
+def test_recent_results_requires_identity_and_valid_cursor(bridge):
+    client, fake, _ = bridge
+    url = '/api/studio/results/recent'
+    assert client.get(url, base_url=ORIGIN).status_code == 401
+    complete(client, start(client))
+    headers = {'X-Idlecloud-User': '1'}
+    assert client.get(url + '?before=123', base_url=ORIGIN, headers=headers).status_code == 200
+    assert fake.calls[-1][1] == 'results/recent?before=123'
+    assert client.get(url + '?before=1%26user_id=2', base_url=ORIGIN, headers=headers).status_code == 400
+    assert client.get(url, base_url=ORIGIN, headers={'X-Idlecloud-User': '2'}).status_code == 409

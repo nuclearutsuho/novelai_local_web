@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { StudioTaskRunner, PENDING_TASK_KEY } from './StudioTaskRunner.mjs';
 import { createScopedStorage } from './userStorage.mjs';
 
-const storage = () => { const data = new Map(); return { getItem: (k) => data.get(k) ?? null, setItem: (k, v) => data.set(k, v), removeItem: (k) => data.delete(k) }; };
+const storage = () => { const data = new Map(); return { getItem: (k) => data.get(k) ?? null, setItem: (k, v) => data.set(k, v), removeItem: (k) => data.delete(k), keys: () => [...data.keys()] }; };
 
 test('恢复二进制结果保持 Blob，画廊确认前仍保留恢复记录', async () => {
   const store = storage();
@@ -30,12 +30,12 @@ test('切换账号后迟到的提交成功或拒绝都不能覆盖新用户记�
     const base = storage();
     const other = JSON.stringify({ request_id: 'same-id', parameters: { prompt: 'other-user' } });
     base.setItem('studio:2:' + PENDING_TASK_KEY, other);
-    const scoped = { getItem: (k) => base.getItem(owner + k), setItem: (k, v) => base.setItem(owner + k, v), removeItem: (k) => base.removeItem(owner + k) };
+    const scoped = { getItem: (k) => base.getItem(owner + k), setItem: (k, v) => base.setItem(owner + k, v), removeItem: (k) => base.removeItem(owner + k), keys: () => base.keys().filter(k => k.startsWith(owner)).map(k => k.slice(owner.length)) };
     const runner = new StudioTaskRunner({ scope: () => owner, storage: scoped, createId: () => 'same-id',
       request: async () => { owner = 'studio:2:'; if (reject) throw { status: 400 }; return { id: 7 }; } });
     await assert.rejects(runner.start({ prompt: 'private' }), { code: 'STUDIO_IDENTITY_CHANGED' });
     assert.equal(base.getItem('studio:2:' + PENDING_TASK_KEY), other);
-    assert.equal(JSON.parse(base.getItem('studio:1:' + PENDING_TASK_KEY)).phase, 'submitting');
+    assert.equal(JSON.parse(base.getItem('studio:1:idlecloud.batch-task:same-id')).phase, 'submitting');
   }
 });
 
@@ -51,7 +51,7 @@ test('恢复结果途中切换账号不会返回旧用户图片或写入新记�
       return { status: 'success' };
     } });
   await assert.rejects(runner.resume(), { code: 'STUDIO_IDENTITY_CHANGED' });
-  assert.equal(base.getItem('studio:1:' + PENDING_TASK_KEY), original);
+  assert.equal(JSON.parse(base.getItem('studio:1:' + PENDING_TASK_KEY)).phase, 'result_pending');
   assert.equal(base.getItem('studio:2:' + PENDING_TASK_KEY), null);
 });
 
@@ -77,14 +77,14 @@ test('响应丢失后恢复只查询已有任务，不重发 POST', async () => 
   };
   const runner = new StudioTaskRunner({ request, storage: store, createId: () => 'request-0000000001', sleep: async () => {} });
   await assert.rejects(runner.start({ width: 512, height: 512, seed: 42 }));
-  assert.ok(store.getItem(PENDING_TASK_KEY));
+  assert.ok(runner.pending());
   const resumed = new StudioTaskRunner({ request, storage: store });
   const result = await resumed.resume();
   assert.equal(result.images[0].seed, 42);
   assert.equal(calls.filter(([, method]) => method === 'POST').length, 1);
-  assert.ok(store.getItem(PENDING_TASK_KEY));
+  assert.ok(resumed.pending());
   resumed.acknowledge(result.studio_request_id);
-  assert.equal(store.getItem(PENDING_TASK_KEY), null);
+  assert.equal(resumed.pending(), null);
 });
 
 test('明确参数拒绝可重新编辑，不确定失败仍保留任务', async () => {
@@ -93,12 +93,13 @@ test('明确参数拒绝可重新编辑，不确定失败仍保留任务', async
   assert.equal(runner.pending(), null);
 });
 
-test('已有未领取任务不能被新生成覆盖', async () => {
+test('已有旧版未领取记录不阻止新生成，新旧记录均可保留', async () => {
   const store = storage(); store.setItem(PENDING_TASK_KEY, JSON.stringify({ request_id: 'old', parameters: {} }));
   let sent = false;
-  const runner = new StudioTaskRunner({ request: async () => { sent = true; }, storage: store });
-  await assert.rejects(runner.start({}), { code: 'STUDIO_TASK_PENDING' });
-  assert.equal(sent, false);
+  const runner = new StudioTaskRunner({ request: async () => { sent = true; throw { code: 'NETWORK_ERROR' }; }, storage: store, createId: () => 'new' });
+  await assert.rejects(runner.start({}), { code: 'NETWORK_ERROR' });
+  assert.equal(sent, true);
+  assert.deepEqual(runner.pendingAll().map(r => r.request_id), ['old', 'new']);
 });
 
 test('用户草稿分区不读取其他用户或独立模式的数据', () => {
@@ -167,4 +168,47 @@ test('画布快照保存失败时不发生成请求', async () => {
   assert.equal(sent, false);
   assert.equal(runner.pending(), null);
   assert.equal(runner.busy, false);
+});
+
+test('下载中断后可生成新图，取消已成功任务不能丢结果，恢复不重复 POST', async () => {
+  const store = storage(); let serial = 0; let offline = true; const posts = [];
+  const runner = new StudioTaskRunner({ storage: store, createId: () => `task-${++serial}`,
+    request: async (path, options) => {
+      if (path.endsWith('/cancel')) return { status: 'success' };
+      if (options?.method === 'POST') { posts.push(options.body.request_id); return { id: posts.length }; }
+      if (path.endsWith('/result')) {
+        if (offline) throw { code: 'NETWORK_ERROR' };
+        return { images: [{ image: 'png' }] };
+      }
+      return { status: 'success' };
+    } });
+  await assert.rejects(runner.start({}), { code: 'STUDIO_RESULT_DOWNLOAD_FAILED' });
+  await runner.cancel('task-1');
+  assert.equal(runner.pending('task-1').phase, 'result_pending');
+  await assert.rejects(runner.start({}), { code: 'STUDIO_RESULT_DOWNLOAD_FAILED' });
+  assert.equal(runner.pendingAll().length, 2);
+  offline = false;
+  for (const id of ['task-1', 'task-2']) {
+    const result = await runner.resume(undefined, id);
+    runner.acknowledge(result.studio_request_id);
+  }
+  assert.deepEqual(posts, ['task-1', 'task-2']);
+  assert.equal(runner.pendingAll().length, 0);
+});
+
+test('旧结果正在下载时新生成可提交，同一恢复请求不能同时领取两次', async () => {
+  const store = storage(); let release; const gate = new Promise(resolve => { release = resolve; });
+  store.setItem(PENDING_TASK_KEY, JSON.stringify({ request_id: 'old', id: 7, parameters: {}, phase: 'result_pending' }));
+  let submitted = 0;
+  const runner = new StudioTaskRunner({ storage: store, createId: () => 'new', request: async (path, options) => {
+    if (options?.method === 'POST') { submitted++; throw { status: 400 }; }
+    if (path.endsWith('/result')) { await gate; return { images: [{ image: 'png' }] }; }
+    return { status: 'success' };
+  } });
+  const recovery = runner.resume(undefined, 'old');
+  await new Promise(resolve => setImmediate(resolve));
+  await assert.rejects(runner.resume(undefined, 'old'), { code: 'STUDIO_TASK_PENDING' });
+  await assert.rejects(runner.start({}), { status: 400 });
+  assert.equal(submitted, 1); release(); await recovery;
+  assert.ok(runner.pending('old'));
 });

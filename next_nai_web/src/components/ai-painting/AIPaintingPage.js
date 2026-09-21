@@ -1,5 +1,6 @@
 // AIPaintingPage.js
 "use client";
+import StudioRecentResults from './Generation/StudioRecentResults';
 import { currentStorageScope, userStorage } from '@/utils/userStorage.mjs';
 import { restoreVibePanel } from './utils/vibePanelRecovery.mjs';
 import { applyOwnedPreview, loadOwnedImageSource } from '@/utils/imageOperationLifecycle.mjs';
@@ -1914,9 +1915,9 @@ const AIPaintingPageContent = ({ userId, accountSnapshot = null }) => {
   const renderAnlasStatus = () => {
     if (apiClient.isStudio()) {
       const usage = describeStudioUsage(liveAccountSnapshot?.studio, generationParams);
-      return <Tooltip title={liveAccountSnapshot?.stale ? `额度刷新失败，以下为上次结果。${usage.quotaHelp}` : usage.quotaHelp} arrow><Button size="small"
+      return <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexWrap: 'wrap' }}><Tooltip title={liveAccountSnapshot?.stale ? `额度刷新失败，以下为上次结果。${usage.quotaHelp}` : usage.quotaHelp} arrow><Button size="small"
         sx={{ textTransform: 'none', color: 'text.primary', fontVariantNumeric: 'tabular-nums' }}
-        onClick={() => window.dispatchEvent(new Event('studio:open-account'))}>{usage.quotaLabel}</Button></Tooltip>;
+        onClick={() => window.dispatchEvent(new Event('studio:open-account'))}>{usage.quotaLabel}</Button></Tooltip><StudioRecentResults onReceive={appendGeneratedItem} generatedItems={generatedItems} /></Box>;
     }
     const total = liveAccountSnapshot?.anlas?.total;
     const displayTotal = total === null || total === undefined

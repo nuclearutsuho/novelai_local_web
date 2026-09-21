@@ -49,7 +49,7 @@ class StudioTransport:
 
     def stream_image(self, path, *, token):
         """鉴权后按块转发成品；禁止重定向，不把整图读入 JSON 或应用内存。"""
-        if not re.fullmatch(r"tasks/[1-9][0-9]*/(?:result|results/[1-9][0-9]*)|plans/[1-9][0-9]*/results/[0-9]+|tools/[1-9][0-9]*/result", path):
+        if not re.fullmatch(r"tasks/[1-9][0-9]*/(?:result|results/[1-9][0-9]*(?:/thumbnail)?)|plans/[1-9][0-9]*/results/[0-9]+|tools/[1-9][0-9]*/result", path):
             raise BridgeError("STUDIO_OPERATION_NOT_ALLOWED", 403)
         session = requests.Session()
         session.trust_env = False
@@ -108,7 +108,8 @@ class StudioTransport:
         task_path = task_path or re.fullmatch(r"plans(?:/by-request/[A-Za-z0-9_-]{16,128}|/[1-9][0-9]*(?:/(?:cancel|resume|results/[0-9]+))?)?", path)
         tool_path = re.fullmatch(r"tools/(?:vibe-encode|upscale|director|by-request/[A-Za-z0-9_-]{16,128}|[1-9][0-9]*(?:/result)?)", path)
         media_path = re.fullmatch(r"media(?:/[1-9][0-9]*)?", path)
-        if path not in {"exchange", "session", "account", "accounts", "tags"} and not task_path and not tool_path and not media_path:
+        recent_path = method == "GET" and re.fullmatch(r"results/recent(?:\?before=[1-9][0-9]{0,17})?", path)
+        if path not in {"exchange", "session", "account", "accounts", "tags"} and not task_path and not tool_path and not media_path and not recent_path:
             raise BridgeError("STUDIO_OPERATION_NOT_ALLOWED", 403)
         if raw_body is not None and (path != "media" or method != "POST" or payload is not None):
             raise BridgeError("STUDIO_OPERATION_NOT_ALLOWED", 403)
@@ -380,6 +381,16 @@ def install_studio_bridge(app, *, transport=None):
         return jsonify(transport.call("POST", "plans" if is_plan else "tasks", token=entry["token"],
             payload={"request_id": request_id, "request": native, "task_count": task_count}))
 
+    @blueprint.get("/api/studio/results/recent")
+    def recent_results():
+        _, entry = get_identity()
+        # 只转发受限的数字游标，不接受任意上游路径或用户 ID。
+        before = request.args.get("before")
+        if before is not None and (not re.fullmatch(r"[1-9][0-9]{0,17}", before)):
+            raise BridgeError("STUDIO_TASK_INVALID")
+        path = "results/recent" + ("?before=" + before if before else "")
+        return jsonify(transport.call("GET", path, token=entry["token"]))
+
     @blueprint.get("/api/studio/tasks/by-request/<request_id>")
     def find_task(request_id):
         _, entry = get_identity()
@@ -421,6 +432,11 @@ def install_studio_bridge(app, *, transport=None):
         if request.headers.get("Accept") == "image/*":
             return transport.stream_image(f"tasks/{task_id}/result", token=entry["token"])
         return jsonify(transport.call("GET", f"tasks/{task_id}/result", token=entry["token"]))
+
+    @blueprint.get("/api/studio/tasks/<int:submission_id>/results/<int:task_id>/thumbnail")
+    def task_item_thumbnail(submission_id, task_id):
+        _, entry = get_identity()
+        return transport.stream_image(f"tasks/{submission_id}/results/{task_id}/thumbnail", token=entry["token"])
 
     @blueprint.get("/api/studio/tasks/<int:submission_id>/results/<int:task_id>")
     def task_item_result(submission_id, task_id):

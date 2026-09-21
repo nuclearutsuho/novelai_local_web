@@ -2,6 +2,7 @@ import { isPaintingModelAllowed } from '@/components/ai-painting/utils/modelUtil
 import { CONNECTION_KEY, STUDIO_USER_KEY, chooseConnection, userStorage, currentStorageScope } from './userStorage.mjs';
 import { StudioVibeRunner } from './StudioVibeRunner.mjs';
 import { StudioTaskRunner } from './StudioTaskRunner.mjs';
+import { createStudioTaskStorage } from './StudioTaskStorage.mjs';
 
 const CSRF_STORAGE_KEY = 'novelai-local.csrf-token';
 
@@ -41,7 +42,8 @@ class ApiClient {
     this.studioVibes = new StudioVibeRunner({ request: (...args) => this.request(...args), storage: userStorage, scope: currentStorageScope, onTerminal });
     this.studioUpscales = new StudioVibeRunner({ request: (...args) => this.request(...args), storage: userStorage, scope: currentStorageScope, tool: 'upscale', onTerminal });
     this.studioDirectors = new StudioVibeRunner({ request: (...args) => this.request(...args), storage: userStorage, scope: currentStorageScope, tool: 'director', onTerminal });
-    this.studioTasks = new StudioTaskRunner({ request: (...args) => this.request(...args), storage: userStorage, scope: currentStorageScope,
+    this.studioTasks = new StudioTaskRunner({ request: (...args) => this.request(...args),
+      storage: createStudioTaskStorage(userStorage, currentStorageScope), scope: currentStorageScope,
       createId: () => window.crypto.randomUUID(),
       notify: () => { if (typeof window !== 'undefined') window.dispatchEvent(new Event('studio:task-changed')); } });
   }
