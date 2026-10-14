@@ -1,6 +1,6 @@
 // 提交前保留任务摘要；普通终态仅存本页内存，未完成任务和画布按存储适配器持久化。手动领取绝不重发生成。
 import { studioWorkspaceStore } from './StudioWorkspaceStore.mjs';
-import { queryStudioStatus } from './StudioStatusQuery.mjs';
+import { isStudioRecoveryUnavailable, queryStudioStatus } from './StudioStatusQuery.mjs';
 export const PENDING_TASK_KEY = 'idlecloud.pending-task';
 export const BATCH_TASK_PREFIX = 'idlecloud.batch-task:';
 const failure = (code) => Object.assign(new Error(code), { code });
@@ -78,6 +78,76 @@ export class StudioTaskRunner {
     this.notify();
   }
 
+  clearUnavailable(record, error, owner) {
+    this.checkOwner(owner);
+    if (!isStudioRecoveryUnavailable(error)) return false;
+    this.acknowledge(record.request_id);
+    return true;
+  }
+
+  noteRecoveryError(requestId, error, owner = this.scope()) {
+    this.checkOwner(owner);
+    const record = this.pending(requestId);
+    if (!record) return;
+    const code = error?.code || error?.message;
+    record.recovery_error = error?.status === 401 ? 'STUDIO_LOGIN_REQUIRED'
+      : error?.status === 403 ? 'STUDIO_PERMISSION_DENIED'
+        : /^[A-Za-z_0-9]{1,80}$/.test(code || '') ? code : 'STUDIO_RECOVERY_FAILED';
+    this.save(record);
+  }
+
+  async resolveRecord(record, owner) {
+    if (record.id) return;
+    const requestId = record.submission_request_id || record.request_id;
+    const key = `${owner}:${record.plan ? 'plan' : 'task'}:request:${requestId}`;
+    if (!this.statusRequests.has(key)) {
+      const pending = queryStudioStatus(() => this.ownedRequest(owner,
+        `/studio/${record.plan ? 'plans' : 'tasks'}/by-request/${encodeURIComponent(requestId)}`),
+      () => this.checkOwner(owner), this.sleep);
+      this.statusRequests.set(key, pending);
+      pending.finally(() => { if (this.statusRequests.get(key) === pending) this.statusRequests.delete(key); }).catch(() => {});
+    }
+    const found = await this.statusRequests.get(key);
+    this.checkOwner(owner);
+    if (!this.pending(record.request_id)) throw failure('STUDIO_RECORD_CHANGED');
+    record.id = found.id;
+    this.taskState(record, found);
+    this.save(record);
+  }
+
+  // 页面初始化只查询旧任务，不下载图片、不恢复画布，也不创建或继续生成。
+  async inspect(requestId) {
+    const owner = this.scope();
+    const record = this.pending(requestId);
+    if (!record || this.busy) return record;
+    if (record.phase === 'result_expired') { this.acknowledge(requestId); return null; }
+    try {
+      await this.resolveRecord(record, owner);
+      const submission = await this.readStatus(record, owner);
+      this.checkOwner(owner);
+      if (!this.pending(requestId)) return null;
+      const state = this.taskState(record, submission);
+      if (!state) throw failure('STUDIO_BATCH_RESPONSE_INVALID');
+      if (!['STUDIO_RESULT_DOWNLOAD_FAILED', 'STUDIO_WORKSPACE_MISSING', 'STUDIO_WORKSPACE_INVALID'].includes(record.recovery_error)) {
+        delete record.recovery_error;
+      }
+      record.server_status = state.status;
+      if (record.plan && submission.status === 'paused' && state.status === 'planned') record.phase = 'paused';
+      else if (['failed', 'canceled', 'partial_success'].includes(state.status)) record.phase = state.status;
+      else if (state.status === 'success') record.phase = record.phase === 'ready' ? 'ready' : 'result_pending';
+      else record.phase = 'waiting';
+      this.save(record);
+      return record;
+    } catch (error) {
+      if (this.clearUnavailable(record, error, owner)) return null;
+      if (error.code === 'STUDIO_STATUS_UNAVAILABLE') {
+        record.phase = 'waiting_connection'; this.save(record);
+      }
+      this.noteRecoveryError(requestId, error, owner);
+      throw error;
+    }
+  }
+
   async start(parameters, progress = () => {}, workspace = null) {
     const owner = this.scope();
     const batch = this.isBatch(parameters.batch_id) ? this.batch : null;
@@ -151,18 +221,15 @@ export class StudioTaskRunner {
     if (!record) throw failure('STUDIO_NO_PENDING_TASK');
     if (this.recoveries.has(record.request_id)) throw failure('STUDIO_TASK_PENDING');
     return this.perform(async () => {
-      if (!record.id) {
-        const found = await this.ownedRequest(owner, `/studio/${record.plan ? 'plans' : 'tasks'}/by-request/${encodeURIComponent(record.submission_request_id || record.request_id)}`);
-        record.id = found.id;
-        if (record.submission_request_id) {
-          record.task_id = found.tasks?.[record.index]?.id;
-          if (!record.task_id && !record.plan) throw failure('STUDIO_BATCH_RESPONSE_INVALID');
-        }
-        this.save(record);
+      try {
+        await this.resolveRecord(record, owner);
+        const result = await this.watch(record, progress, owner);
+        // 画布互斥覆盖图片读取、快照加载和补丁安装，不能在网络响应后提前解锁。
+        return await receive(result);
+      } catch (error) {
+        if (!this.clearUnavailable(record, error, owner)) this.noteRecoveryError(requestId, error, owner);
+        throw error;
       }
-      const result = await this.watch(record, progress, owner);
-      // 画布互斥覆盖图片读取、快照加载和补丁安装，不能在网络响应后提前解锁。
-      return await receive(result);
     }, record.request_id, { recovery: !record.workspace });
   }
 
@@ -177,17 +244,28 @@ export class StudioTaskRunner {
     return this.statusRequests.get(key);
   }
 
+  taskState(record, submission) {
+    if (record.plan) return submission.tasks?.find(task => task.index === record.index);
+    // 兼容取消恢复曾只写入批次 ID 的旧摘要，按原始序号补齐子任务，不能使用整批终态代替。
+    if (record.submission_request_id && !record.task_id) {
+      record.task_id = submission.tasks?.[record.index]?.id;
+      if (!record.task_id) throw failure('STUDIO_BATCH_RESPONSE_INVALID');
+      this.save(record);
+    }
+    return record.task_id ? submission.tasks?.find(task => task.id === record.task_id) : submission;
+  }
+
   async watch(record, progress, owner = this.scope()) {
     for (let attempt = 0; attempt < (record.plan ? 57600 : 400); attempt += 1) {
       let submission;
       try { submission = await this.readStatus(record, owner); }
       catch (error) {
         this.checkOwner(owner);
+        if (this.clearUnavailable(record, error, owner)) throw error;
         if (error.code === 'STUDIO_STATUS_UNAVAILABLE') { record.phase = 'waiting_connection'; this.save(record); }
         throw error;
       }
-      const state = record.plan ? submission.tasks?.find(task => task.index === record.index)
-        : record.task_id ? submission.tasks?.find(task => task.id === record.task_id) : submission;
+      const state = this.taskState(record, submission);
       if (!state) throw failure('STUDIO_BATCH_RESPONSE_INVALID');
       record.server_status = state.status;
       if (record.plan && submission.status === 'paused' && state.status === 'planned') {
@@ -207,13 +285,14 @@ export class StudioTaskRunner {
         try { result = await this.readResult(record, owner); }
         catch (error) {
           this.checkOwner(owner);
-          if (error.status === 410 && error.code === 'idlecloud_result_expired') {
-            record.phase = 'result_expired'; this.save(record);
-            throw error;
-          }
+          if (this.clearUnavailable(record, error, owner)) throw error;
+          // 业务级丢失与授权失败必须保留原始原因，不能统一伪装成下载中断。
+          if ([401, 403].includes(error.status)) throw error;
+          record.recovery_error = 'STUDIO_RESULT_DOWNLOAD_FAILED'; this.save(record);
           throw Object.assign(failure('STUDIO_RESULT_DOWNLOAD_FAILED'), { cause: error });
         }
         record.phase = 'ready';
+        delete record.recovery_error;
         this.save(record);
         return { studio_request_id: record.request_id, studio_parameters: record.parameters, studio_workspace: record.workspace,
           images: result.images.map((image) => ({ blob: image.blob, data: image.image, seed: image.seed,
@@ -237,6 +316,8 @@ export class StudioTaskRunner {
     if (!record.id) {
       const found = await this.ownedRequest(owner, `/studio/${record.plan ? 'plans' : 'tasks'}/by-request/${encodeURIComponent(record.submission_request_id || record.request_id)}`);
       record.id = found.id;
+      this.taskState(record, found);
+      this.save(record);
     }
     const result = await this.ownedRequest(owner, `/studio/${record.plan ? 'plans' : 'tasks'}/${record.id}/cancel`, { method: 'POST', body: {} });
     // 计划取消只停止未派发部分；仍在运行的图片不能被本地标成可清除的终态。
@@ -244,10 +325,11 @@ export class StudioTaskRunner {
       (record.submission_request_id && item.submission_request_id === record.submission_request_id)));
     if (!related.some(item => item.request_id === record.request_id)) related.push(record);
     for (const item of related) {
-      const state = item.plan ? result.tasks?.find(task => task.index === item.index)?.status
-        : item.task_id ? result.tasks?.find(task => task.id === item.task_id)?.status : result.status;
+      item.id = record.id;
+      const state = this.taskState(item, result)?.status;
       if (!state) continue;
       item.server_status = state;
+      delete item.recovery_error;
       if (['failed', 'canceled', 'partial_success'].includes(state)) item.phase = state;
       if (state === 'success' && item.phase !== 'result_expired') item.phase = 'result_pending';
       this.save(item);
@@ -261,7 +343,7 @@ export class StudioTaskRunner {
     if (!record?.plan || !record.id || this.busy) throw failure('STUDIO_RECORD_CHANGED');
     await this.ownedRequest(owner, `/studio/plans/${record.id}/resume`, { method: 'POST', body: {} });
     for (const item of this.pendingAll().filter(item => item.plan && item.id === record.id && item.phase === 'paused')) {
-      item.phase = 'waiting'; this.save(item);
+      item.phase = 'waiting'; delete item.recovery_error; this.save(item);
     }
   }
 
@@ -272,7 +354,14 @@ export class StudioTaskRunner {
       && (!batchId || record.batch_id === batchId));
     if (!records.length) return { canceled: false };
     const unique = [...new Map(records.map(record => [record.id || record.submission_request_id || record.request_id, record])).values()];
-    const results = await Promise.allSettled(unique.map(record => this.cancelRecord(record, owner)));
+    const results = await Promise.allSettled(unique.map(async record => {
+      try { return await this.cancelRecord(record, owner); }
+      catch (error) {
+        // 正在创建的批次可能尚未可查，不能删除 start 仍需要的摘要。
+        if (!this.busy) this.clearUnavailable(record, error, owner);
+        throw error;
+      }
+    }));
     // 创建响应尚未返回时查询可能找不到；start 在收到创建结果后还会复查批次取消标志。
     const rejected = results.find(result => result.status === 'rejected');
     if (rejected) throw rejected.reason;

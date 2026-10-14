@@ -134,3 +134,28 @@ test('取消计划仍保留运行中图片的恢复记录', async () => {
   await runner.cancel('running');
   assert.equal(runner.pending().phase, 'waiting');
 });
+
+test('响应丢失后取消批次按每项终态更新，旧摘要缺少子任务编号仍可领取成功图片', async () => {
+  const store = storage(); const calls = [];
+  for (const [index, id] of ['success', 'canceled'].entries()) store.setItem(BATCH_TASK_PREFIX + id, JSON.stringify({
+    request_id: id, separate: true, submission_request_id: 'original-batch', index, parameters: {}, phase: 'submitting',
+  }));
+  const snapshot = { id: 8, status: 'partial_success', tasks: [{ id: 80, status: 'success' }, { id: 81, status: 'canceled' }] };
+  const runner = new StudioTaskRunner({ storage: store, request: async (path, options) => {
+    calls.push([path, options?.method || 'GET']);
+    return path.endsWith('/results/80') ? { images: [{ image: 'png' }] } : snapshot;
+  } });
+  await runner.cancel('success');
+  assert.deepEqual(runner.pendingAll().map(({ id, task_id, phase }) => ({ id, task_id, phase })), [
+    { id: 8, task_id: 80, phase: 'result_pending' }, { id: 8, task_id: 81, phase: 'canceled' },
+  ]);
+  // 历史版本留下批次 ID、丢失子任务 ID 的记录也不能误用整批 partial_success。
+  const legacy = runner.pending('success'); delete legacy.task_id; runner.save(legacy);
+  const result = await runner.resume(undefined, 'success');
+  assert.equal(result.studio_request_id, 'success');
+  assert.equal(runner.pending('success').task_id, 80);
+  assert.deepEqual(calls, [
+    ['/studio/tasks/by-request/original-batch', 'GET'], ['/studio/tasks/8/cancel', 'POST'],
+    ['/studio/tasks/8', 'GET'], ['/studio/tasks/8/results/80', 'GET'],
+  ]);
+});

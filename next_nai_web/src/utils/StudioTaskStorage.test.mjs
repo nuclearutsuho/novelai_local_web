@@ -44,11 +44,13 @@ test('旧普通记录和损坏记录不回显；画布快照记录仍可跨刷�
   const persistent = storage();
   persistent.setItem(PENDING_TASK_KEY, JSON.stringify({ request_id: 'old', parameters: {} }));
   persistent.setItem(BATCH_TASK_PREFIX + 'bad', '{');
+  persistent.setItem(BATCH_TASK_PREFIX + 'expired', JSON.stringify({ request_id: 'expired', parameters: {}, phase: 'result_expired' }));
   const store = createStudioTaskStorage(persistent, () => 'user:1');
   store.setItem(BATCH_TASK_PREFIX + 'canvas', JSON.stringify({ request_id: 'canvas', workspace: true, parameters: {} }));
   const runner = new StudioTaskRunner({ storage: createStudioTaskStorage(persistent, () => 'user:1') });
   assert.deepEqual(runner.pendingAll().map(record => record.request_id), ['canvas']);
   assert.ok(persistent.getItem(PENDING_TASK_KEY));
+  assert.equal(persistent.getItem(BATCH_TASK_PREFIX + 'expired'), null);
 });
 
 test('切换用户会清空本页普通记录，不显示上个身份的数据', () => {
@@ -104,4 +106,46 @@ test('未结束任务跨刷新保留最少摘要，终态后只在当前页领�
   }
   assert.equal(refreshed.keys().length, 5);
   assert.equal(createStudioTaskStorage(persistent, () => 'user:1').keys().length, 0);
+});
+
+test('不存在的旧画布任务自动清理摘要和快照，刷新不复现且不影响其他任务', async () => {
+  const persistent = storage();
+  const scope = () => 'user:1';
+  const store = createStudioTaskStorage(persistent, scope);
+  for (const id of ['missing', 'other']) store.setItem(BATCH_TASK_PREFIX + id, JSON.stringify({
+    request_id: id, separate: true, workspace: true, parameters: {}, phase: 'submitting',
+  }));
+  const calls = []; const removed = [];
+  const runner = new StudioTaskRunner({ storage: store, scope,
+    workspaceStore: { remove: async id => removed.push(id) },
+    request: async (path, options) => {
+      calls.push([path, options?.method || 'GET']);
+      throw { status: 404, code: 'idlecloud_task_not_found' };
+    },
+  });
+  assert.equal(await runner.inspect('missing'), null);
+  assert.deepEqual(removed, ['missing']);
+  const refreshed = new StudioTaskRunner({ storage: createStudioTaskStorage(persistent, scope) });
+  assert.deepEqual(refreshed.pendingAll().map(record => record.request_id), ['other']);
+  assert.deepEqual(calls, [['/studio/tasks/by-request/missing', 'GET']]);
+});
+
+test('恢复只清理明确失效任务，普通 404、权限错误、断网和迟到的旧账号 404 保留摘要', async () => {
+  for (const error of [{ status: 404, code: 'HTTP_404' }, { status: 401 }, { status: 403 }, { code: 'NETWORK_ERROR' }]) {
+    const persistent = storage();
+    persistent.setItem(BATCH_TASK_PREFIX + 'keep', JSON.stringify({ request_id: 'keep', separate: true,
+      workspace: true, id: 11, parameters: {}, phase: 'waiting' }));
+    const runner = new StudioTaskRunner({ storage: persistent, sleep: async () => {}, request: async () => { throw error; } });
+    await assert.rejects(runner.inspect('keep'));
+    assert.ok(runner.pending('keep'));
+  }
+  let owner = 'one';
+  const persistent = storage();
+  persistent.setItem(BATCH_TASK_PREFIX + 'same', JSON.stringify({ request_id: 'same', separate: true,
+    workspace: true, id: 11, parameters: {}, phase: 'waiting' }));
+  const runner = new StudioTaskRunner({ storage: persistent, scope: () => owner, request: async () => {
+    owner = 'two'; throw { status: 404, code: 'idlecloud_task_not_found' };
+  } });
+  await assert.rejects(runner.inspect('same'), { code: 'STUDIO_IDENTITY_CHANGED' });
+  assert.ok(persistent.getItem(BATCH_TASK_PREFIX + 'same'));
 });

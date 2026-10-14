@@ -68,6 +68,28 @@ test('恢复成功后才确认；工作区缺失或应用失败均保留恢复�
   assert.deepEqual(failed.calls, [['create'], ['release', 'blob:old-user']]);
 });
 
+test('静默查询不读取画布或下载结果，手动恢复才应用；快照缺失仍可显式接收图片', async () => {
+  const { StudioTaskRunner, PENDING_TASK_KEY } = await import('./StudioTaskRunner.mjs');
+  const data = new Map([[PENDING_TASK_KEY, JSON.stringify({ request_id: 'canvas', workspace: true,
+    id: 7, parameters: {}, phase: 'waiting' })]]);
+  const calls = []; let loads = 0;
+  const runner = new StudioTaskRunner({ storage: { getItem: key => data.get(key) ?? null,
+    setItem: (key, value) => data.set(key, value), removeItem: key => data.delete(key) },
+    workspaceStore: { load: async () => { loads++; return null; }, remove: async () => {} },
+    request: async (path, options) => {
+      assert.notEqual(options?.method, 'POST'); calls.push(path);
+      return path.endsWith('/result') ? { images: [{ image: 'png' }] } : { status: 'success' };
+    } });
+  assert.equal((await runner.inspect('canvas')).phase, 'result_pending');
+  assert.deepEqual(calls, ['/studio/tasks/7']); assert.equal(loads, 0);
+  const options = { runner, requestId: 'canvas', checkOwner: () => {}, createItem: () => ({}),
+    applyItem: async (_item, workspace) => assert.equal(workspace, null), releaseItem: () => {} };
+  await assert.rejects(recoverStudioResult(options), { code: 'STUDIO_WORKSPACE_MISSING' });
+  assert.ok(runner.pending('canvas'));
+  await recoverStudioResult({ ...options, restoreWorkspace: false });
+  assert.equal(loads, 1); assert.equal(runner.pending('canvas'), null);
+});
+
 
 test('画布恢复在快照加载和补丁安装结束前阻止新生成，成功/失败都释放互斥', async () => {
   const { StudioTaskRunner, PENDING_TASK_KEY } = await import('./StudioTaskRunner.mjs');

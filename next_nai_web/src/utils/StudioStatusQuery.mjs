@@ -19,27 +19,44 @@ export async function queryStudioStatus(read, check, sleep) {
   }
 }
 
+// 只以明确业务错误清理；普通 HTTP 404、授权失败和网络错误都保留恢复机会。
+export function isStudioRecoveryUnavailable(error) {
+  return (error?.status === 404 && ['idlecloud_task_not_found', 'idlecloud_plan_not_found'].includes(error?.code))
+    || (error?.status === 410 && error?.code === 'idlecloud_result_expired');
+}
+
 export function studioRecoveryMessage(error) {
   const code = error?.code || error?.message;
   const messages = {
-    STUDIO_RECOVERY_STOPPED: '已停止领取，任务记录仍保留；没有取消服务器任务。',
-    idlecloud_result_expired: '临时图片已过期或丢失，可清除这条恢复记录。重新生成需要另行发起。',
-    STUDIO_STATUS_UNAVAILABLE: '暂时无法查询任务，记录已保留。连接恢复后可继续查询，不会重新提交生成。',
-    NETWORK_ERROR: '连接中断，记录已保留，请稍后恢复已有任务。',
-    STUDIO_WAIT_TIMEOUT: '本次等待已结束，任务不一定失败。可继续查询已有任务，不会重新生成。',
-    STUDIO_IDENTITY_CHANGED: '登录用户已变化，请从当前账号重新进入。',
-    STUDIO_LOGIN_REQUIRED: '登录已失效，请重新从 Studio 进入后恢复任务。',
-    STUDIO_TASK_FAILED: '服务器任务已失败，可清除已结束记录后调整参数。',
-    STUDIO_PLAN_PAUSED: '计划已暂停。检查额度和权限后，可继续生成剩余图片。',
-    STUDIO_TASK_CANCELED: '排队任务已取消，可清除已结束记录。',
-    STUDIO_TASK_PARTIAL_SUCCESS: '本批只有部分任务成功，请先领取可用图片。',
-    STUDIO_RECORD_CHANGED: '恢复记录已变化，请查看当前任务列表。',
-    STUDIO_TASK_PENDING: '已有任务正在处理，请等待当前操作结束。',
-    STUDIO_RESULT_DOWNLOAD_FAILED: '图片已生成，接收中断。可手动领取或开始新生成；普通图片记录在刷新后清空。',
-    STUDIO_RECORD_WRITE_FAILED: '浏览器无法保存任务恢复记录，本次尚未提交生成。请检查浏览器存储空间。',
+    idlecloud_task_not_found: '任务不存在',
+    idlecloud_plan_not_found: '计划不存在',
+    STUDIO_RECOVERY_STOPPED: '已停止恢复',
+    idlecloud_result_expired: '图片已过期',
+    STUDIO_STATUS_UNAVAILABLE: '暂时无法查询任务',
+    NETWORK_ERROR: '连接中断',
+    STUDIO_WAIT_TIMEOUT: '任务状态待确认',
+    STUDIO_IDENTITY_CHANGED: '账号已切换',
+    STUDIO_LOGIN_REQUIRED: '登录已失效，请重新从 Studio 进入',
+    STUDIO_PERMISSION_DENIED: '当前账号无权操作',
+    STUDIO_TASK_FAILED: '生成失败',
+    STUDIO_PLAN_PAUSED: '计划已暂停',
+    STUDIO_TASK_CANCELED: '任务已取消',
+    STUDIO_TASK_PARTIAL_SUCCESS: '部分图片生成失败',
+    STUDIO_RECORD_CHANGED: '任务状态已变化',
+    STUDIO_NO_PENDING_TASK: '任务已移除',
+    STUDIO_BATCH_RESPONSE_INVALID: '任务状态不匹配',
+    STUDIO_WORKSPACE_MISSING: '画布快照已丢失',
+    STUDIO_WORKSPACE_INVALID: '画布快照无法读取',
+    STUDIO_WORKSPACE_NOT_MOUNTED: '画布尚未就绪',
+    STUDIO_WORKSPACE_RECOVERY_FAILED: '画布恢复失败',
+    idlecloud_request_id_invalid: '任务无法查询',
+    CSRF_INVALID: '登录已失效，请重新从 Studio 进入',
+    STUDIO_TASK_PENDING: '任务正在处理',
+    STUDIO_RESULT_DOWNLOAD_FAILED: '图片接收失败',
+    STUDIO_RECORD_WRITE_FAILED: '无法保存任务，请检查浏览器存储空间',
   };
   if (messages[code]) return messages[code];
   if (error?.status === 401) return messages.STUDIO_LOGIN_REQUIRED;
-  if (error?.status === 403) return '当前账号无权执行此操作，请检查 Studio 授权。';
-  return '操作未完成，记录已保留。请稍后重试；恢复不会重新提交生成。';
+  if (error?.status === 403) return '当前账号无权操作';
+  return '操作失败，请重试';
 }

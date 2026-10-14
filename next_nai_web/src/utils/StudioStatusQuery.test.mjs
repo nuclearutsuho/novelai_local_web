@@ -52,7 +52,7 @@ test('等待上限只暂停查询，原任务成功后可继续领取', async ()
   assert.equal((await runner.resume()).studio_request_id, 'original');
 });
 
-test('过期结果可直接移除本地记录，无须重新下载或提交生成', async () => {
+test('结果过期后自动移除本地记录，无须手动清理或重新生成', async () => {
   let reads = 0;
   const { runner } = fixture(async (path, options) => {
     assert.notEqual(options?.method, 'POST');
@@ -61,8 +61,6 @@ test('过期结果可直接移除本地记录，无须重新下载或提交生�
     throw { status: 410, code: 'idlecloud_result_expired' };
   });
   await assert.rejects(runner.resume(), { code: 'idlecloud_result_expired' });
-  assert.equal(runner.pending().phase, 'result_expired');
-  runner.acknowledge('original');
   assert.equal(runner.pending(), null);
   assert.equal(reads, 1);
 });

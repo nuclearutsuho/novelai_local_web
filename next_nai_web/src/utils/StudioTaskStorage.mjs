@@ -12,7 +12,12 @@ export function createStudioTaskStorage(persistent, scope) {
   const persistedTracking = key => {
     const value = persistent.getItem(key);
     if (!value) return null;
-    try { return needsTracking(JSON.parse(value)) ? value : null; }
+    try {
+      const record = JSON.parse(value);
+      // 普通过期摘要已无恢复用途；画布摘要交给 Runner 一并删除 IndexedDB 快照。
+      if (record?.phase === 'result_expired' && !record.workspace) { persistent.removeItem(key); return null; }
+      return needsTracking(record) ? value : null;
+    }
     catch { return null; } // 旧普通记录损坏也不能阻塞新的生成。
   };
   return {
