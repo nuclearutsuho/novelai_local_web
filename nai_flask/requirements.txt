@@ -1,5 +1,6 @@
 Flask>=3.1,<4
-Pillow>=11,<13
+# Pillow 13 包含本轮图片解码安全修复，保持同一主版本内更新。
+Pillow>=13,<14
 PyNaCl>=1.5,<2
 argon2-cffi>=25,<26
 requests>=2.32,<3
